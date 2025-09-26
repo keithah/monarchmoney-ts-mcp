@@ -1,4 +1,5 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ErrorCode,
@@ -9,41 +10,76 @@ import { z } from 'zod';
 
 const { MonarchClient } = require('monarchmoney');
 
-export default function createServer({ config }: { config: { email: string; password: string; mfaSecret?: string } }) {
-  const server = new Server(
-    {
-      name: 'monarchmoney-mcp',
-      version: '1.1.0',
-    },
-    {
-      capabilities: {
-        tools: {},
+export const configSchema = z.object({
+  email: z.string().email().describe("MonarchMoney email address"),
+  password: z.string().min(1).describe("MonarchMoney password"),
+  mfaSecret: z.string().optional().describe("Optional MFA secret for TOTP")
+});
+
+class MonarchMcpServer {
+  private server: Server;
+  private monarchClient: any;
+  private config: z.infer<typeof configSchema> | null = null;
+  private isAuthenticated = false;
+
+  constructor(config?: z.infer<typeof configSchema>) {
+    this.config = config || null;
+    this.server = new Server(
+      {
+        name: 'monarchmoney-mcp',
+        version: '1.1.0',
       },
-    }
-  );
+      {
+        capabilities: {
+          tools: {},
+        },
+      }
+    );
 
-  const monarchClient = new MonarchClient({
-    baseURL: 'https://api.monarchmoney.com',
-    timeout: 30000,
-  });
+    this.monarchClient = new MonarchClient({
+      baseURL: 'https://api.monarchmoney.com',
+      timeout: 30000,
+    });
 
-  let isAuthenticated = false;
+    this.setupToolHandlers();
+    this.setupErrorHandling();
+  }
 
-  const ensureAuthenticated = async () => {
-    if (isAuthenticated) {
+  private setupErrorHandling(): void {
+    this.server.onerror = (error) => console.error('[MCP Error]', error);
+    process.on('SIGINT', async () => {
+      await this.server.close();
+      process.exit(0);
+    });
+  }
+
+  private async ensureAuthenticated() {
+    if (this.isAuthenticated) {
       return;
     }
 
     try {
-      console.log(`🔐 Attempting authentication for: ${config.email}`);
+      // Try config first, then environment variables as fallback
+      const email = this.config?.email || process.env.MONARCH_EMAIL;
+      const password = this.config?.password || process.env.MONARCH_PASSWORD;
+      const mfaSecretKey = this.config?.mfaSecret || process.env.MONARCH_MFA_SECRET;
 
-      await monarchClient.login({
-        email: config.email,
-        password: config.password,
-        mfaSecretKey: config.mfaSecret,
+      if (!email || !password) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          'MonarchMoney credentials are required. Please configure email and password.'
+        );
+      }
+
+      console.log(`🔐 Attempting authentication for: ${email}`);
+
+      await this.monarchClient.login({
+        email,
+        password,
+        mfaSecretKey,
       });
 
-      isAuthenticated = true;
+      this.isAuthenticated = true;
       console.log(`✅ Successfully authenticated`);
     } catch (error: any) {
       console.error(`💥 Authentication Error: ${error.message}`);
@@ -52,11 +88,10 @@ export default function createServer({ config }: { config: { email: string; pass
         `Authentication failed: ${error.message}`
       );
     }
-  };
+  }
 
-  // Set up tool handlers
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
+  private setupToolHandlers(): void {
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         {
           name: "get_accounts",
@@ -74,60 +109,85 @@ export default function createServer({ config }: { config: { email: string; pass
           }
         }
       ]
-    };
-  });
+    }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
 
-    if (name === "get_accounts") {
-      await ensureAuthenticated();
-
-      const accounts = await monarchClient.accounts.getAll();
-      const verbosity = (args as any)?.verbosity || "light";
-
-      if (verbosity === "ultra-light") {
-        const total = accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0);
-        return {
-          content: [{
-            type: "text",
-            text: `💰 ${accounts.length} accounts, Total: $${total.toLocaleString()}`
-          }]
-        };
+      try {
+        switch (name) {
+          case 'get_accounts':
+            return await this.handleGetAccounts(args);
+          default:
+            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+        }
+      } catch (error) {
+        if (error instanceof McpError) {
+          throw error;
+        }
+        throw new McpError(ErrorCode.InternalError, `Tool execution failed: ${error}`);
       }
+    });
+  }
 
-      if (verbosity === "light") {
-        const summary = accounts.map((acc: any) => ({
-          name: acc.displayName,
-          balance: acc.currentBalance,
-          type: acc.type?.display
-        }));
+  private async handleGetAccounts(args: any) {
+    await this.ensureAuthenticated();
 
-        return {
-          content: [{
-            type: "text",
-            text: `📊 **Account Summary**\n\n${summary.map((a: any) => `• ${a.name}: $${a.balance?.toLocaleString() || '0'} (${a.type})`).join('\n')}`
-          }]
-        };
-      }
+    const accounts = await this.monarchClient.accounts.getAll();
+    const verbosity = args?.verbosity || "light";
 
+    if (verbosity === "ultra-light") {
+      const total = accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0);
       return {
         content: [{
           type: "text",
-          text: JSON.stringify(accounts, null, 2)
+          text: `💰 ${accounts.length} accounts, Total: $${total.toLocaleString()}`
         }]
       };
     }
 
-    throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
-  });
+    if (verbosity === "light") {
+      const summary = accounts.map((acc: any) => ({
+        name: acc.displayName,
+        balance: acc.currentBalance,
+        type: acc.type?.display
+      }));
 
-  return server;
+      return {
+        content: [{
+          type: "text",
+          text: `📊 **Account Summary**\n\n${summary.map((a: any) => `• ${a.name}: $${a.balance?.toLocaleString() || '0'} (${a.type})`).join('\n')}`
+        }]
+      };
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(accounts, null, 2)
+      }]
+    };
+  }
+
+  async run(): Promise<void> {
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+    console.error('MonarchMoney MCP server running on stdio');
+  }
+
+  getServer(): Server {
+    return this.server;
+  }
 }
 
-// Export config schema for Smithery
-export const configSchema = z.object({
-  email: z.string().email().describe("MonarchMoney email address"),
-  password: z.string().min(1).describe("MonarchMoney password"),
-  mfaSecret: z.string().optional().describe("Optional MFA secret for TOTP")
-});
+// Traditional MCP server run (for local usage)
+if (require.main === module) {
+  const server = new MonarchMcpServer();
+  server.run().catch(console.error);
+}
+
+// Smithery-compliant export
+export default function createServer({ config }: { config?: z.infer<typeof configSchema> }) {
+  const serverInstance = new MonarchMcpServer(config);
+  return serverInstance.getServer();
+}
