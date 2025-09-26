@@ -82,8 +82,8 @@ const manifest = {
   version: bundleJson.version,
   description: bundleJson.description,
   author: {
-    name: "Keith Ah",
-    url: "https://github.com/keithah"
+    name: "Keith Herrington",
+    url: "https://github.com/keithah/monarchmoney-ts-mcp"
   },
   keywords: bundleJson.keywords,
   server: {
