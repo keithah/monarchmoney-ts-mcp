@@ -98,7 +98,7 @@ class MonarchMcpServer {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(result, null, 2),
+              text: this.formatResult(name, result),
             },
           ],
         };
@@ -249,13 +249,14 @@ class MonarchMcpServer {
       return {
         type: 'object',
         properties: {
-          limit: { type: 'number', description: 'Maximum number of results', default: 50 },
+          limit: { type: 'number', description: 'Maximum number of results (default: 25, max: 100)', default: 25 },
           offset: { type: 'number', description: 'Pagination offset', default: 0 },
-          startDate: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
-          endDate: { type: 'string', description: 'End date (YYYY-MM-DD)' },
+          startDate: { type: 'string', description: 'Start date (YYYY-MM-DD, defaults to 30 days ago)' },
+          endDate: { type: 'string', description: 'End date (YYYY-MM-DD, defaults to today)' },
           accountIds: { type: 'array', items: { type: 'string' }, description: 'Filter by account IDs' },
           categoryIds: { type: 'array', items: { type: 'string' }, description: 'Filter by category IDs' },
-          search: { type: 'string', description: 'Search term' },
+          search: { type: 'string', description: 'Search term for merchant names or descriptions' },
+          absAmountRange: { type: 'array', items: { type: 'number' }, description: 'Filter by amount range [min, max]' },
         },
       };
     }
@@ -311,6 +312,166 @@ class MonarchMcpServer {
     );
   }
 
+  private formatResult(toolName: string, result: any): string {
+    if (!result) {
+      return `No data returned for ${toolName}`;
+    }
+
+    // Handle arrays (like accounts, transactions)
+    if (Array.isArray(result)) {
+      return this.formatArrayResult(toolName, result);
+    }
+
+    // Handle objects (like summaries, single items)
+    if (typeof result === 'object') {
+      return this.formatObjectResult(toolName, result);
+    }
+
+    // Handle primitives
+    return String(result);
+  }
+
+  private formatArrayResult(toolName: string, data: any[]): string {
+    if (data.length === 0) {
+      return `No ${toolName.replace(/.*_/, '')} found.`;
+    }
+
+    // Format based on data type
+    if (toolName.includes('accounts')) {
+      return this.formatAccounts(data);
+    } else if (toolName.includes('transactions')) {
+      return this.formatTransactions(data);
+    } else if (toolName.includes('categories')) {
+      return this.formatCategories(data);
+    } else if (toolName.includes('budgets')) {
+      return this.formatBudgets(data);
+    }
+
+    // Default formatting for other arrays
+    return `Found ${data.length} items:\n` +
+           data.slice(0, 10).map((item, i) =>
+             `${i + 1}. ${JSON.stringify(item, null, 2)}`
+           ).join('\n') +
+           (data.length > 10 ? `\n... and ${data.length - 10} more items` : '');
+  }
+
+  private formatObjectResult(toolName: string, data: any): string {
+    // Handle specific object types
+    if (data.totalIncome !== undefined || data.totalExpenses !== undefined) {
+      return this.formatSummary(data);
+    }
+
+    if (data.currentBalance !== undefined) {
+      return this.formatAccount(data);
+    }
+
+    // Default object formatting - show key fields only
+    const relevantFields = this.getRelevantFields(data);
+    return Object.entries(relevantFields)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n');
+  }
+
+  private formatAccounts(accounts: any[]): string {
+    const summary = `📊 **Account Summary** (${accounts.length} accounts)\n\n`;
+
+    let totalBalance = 0;
+    const formatted = accounts.map(acc => {
+      const balance = acc.currentBalance || acc.displayBalance || 0;
+      totalBalance += balance;
+
+      return `• **${acc.displayName || acc.name}**
+  Type: ${acc.type?.display || acc.subtype?.display || 'Unknown'}
+  Balance: $${balance.toLocaleString()}
+  Institution: ${acc.institution?.name || 'Manual'}
+  ${acc.mask ? `Account: ***${acc.mask}` : ''}`;
+    }).join('\n\n');
+
+    return summary + formatted + `\n\n**Total Balance: $${totalBalance.toLocaleString()}**`;
+  }
+
+  private formatTransactions(transactions: any[]): string {
+    const summary = `💳 **Transaction Summary** (${transactions.length} transactions)\n\n`;
+
+    let totalAmount = 0;
+    const formatted = transactions.slice(0, 20).map(txn => {
+      const amount = txn.amount || 0;
+      totalAmount += Math.abs(amount);
+
+      const date = txn.date ? new Date(txn.date).toLocaleDateString() : 'Unknown date';
+      const merchant = txn.merchantName || txn.description || 'Unknown merchant';
+      const category = txn.category?.name || 'Uncategorized';
+
+      return `• ${date} - **${merchant}**
+  Amount: ${amount >= 0 ? '+' : '-'}$${Math.abs(amount).toLocaleString()}
+  Category: ${category}
+  Account: ${txn.account?.displayName || 'Unknown'}`;
+    }).join('\n\n');
+
+    return summary + formatted +
+           (transactions.length > 20 ? `\n\n... and ${transactions.length - 20} more transactions` : '') +
+           `\n\n**Total Transaction Volume: $${totalAmount.toLocaleString()}**`;
+  }
+
+  private formatCategories(categories: any[]): string {
+    return `🏷️ **Categories** (${categories.length} total)\n\n` +
+           categories.slice(0, 15).map(cat =>
+             `• **${cat.name}** ${cat.group ? `(${cat.group.name})` : ''}`
+           ).join('\n') +
+           (categories.length > 15 ? `\n... and ${categories.length - 15} more categories` : '');
+  }
+
+  private formatBudgets(budgets: any[]): string {
+    return `💰 **Budget Summary** (${budgets.length} categories)\n\n` +
+           budgets.slice(0, 10).map(budget => {
+             const spent = budget.actual || budget.spent || 0;
+             const budgeted = budget.budgeted || budget.limit || 0;
+             const remaining = budgeted - spent;
+             const percentage = budgeted > 0 ? Math.round((spent / budgeted) * 100) : 0;
+
+             return `• **${budget.category?.name || budget.name}**
+  Budgeted: $${budgeted.toLocaleString()}
+  Spent: $${spent.toLocaleString()} (${percentage}%)
+  Remaining: $${remaining.toLocaleString()}`;
+           }).join('\n\n') +
+           (budgets.length > 10 ? `\n\n... and ${budgets.length - 10} more budget categories` : '');
+  }
+
+  private formatSummary(data: any): string {
+    const lines = [];
+
+    if (data.totalIncome !== undefined) lines.push(`💰 Total Income: $${data.totalIncome.toLocaleString()}`);
+    if (data.totalExpenses !== undefined) lines.push(`💸 Total Expenses: $${data.totalExpenses.toLocaleString()}`);
+    if (data.netIncome !== undefined) lines.push(`📈 Net Income: $${data.netIncome.toLocaleString()}`);
+    if (data.totalTransactions !== undefined) lines.push(`📊 Total Transactions: ${data.totalTransactions.toLocaleString()}`);
+
+    return lines.join('\n');
+  }
+
+  private formatAccount(account: any): string {
+    return `📊 **${account.displayName || account.name}**
+Type: ${account.type?.display || account.subtype?.display || 'Unknown'}
+Balance: $${(account.currentBalance || account.displayBalance || 0).toLocaleString()}
+Institution: ${account.institution?.name || 'Manual'}
+Updated: ${account.displayLastUpdatedAt ? new Date(account.displayLastUpdatedAt).toLocaleDateString() : 'Unknown'}`;
+  }
+
+  private getRelevantFields(obj: any): any {
+    const relevant: any = {};
+    const importantKeys = [
+      'id', 'name', 'displayName', 'amount', 'balance', 'currentBalance', 'displayBalance',
+      'date', 'description', 'category', 'type', 'status', 'total', 'count'
+    ];
+
+    importantKeys.forEach(key => {
+      if (obj[key] !== undefined) {
+        relevant[key] = obj[key];
+      }
+    });
+
+    return relevant;
+  }
+
   private adaptArguments(toolName: string, args: any): any[] {
     // Methods that take no parameters
     const noParamMethods = [
@@ -347,7 +508,30 @@ class MonarchMcpServer {
 
     // Transaction methods with filtering options
     if (toolName.includes('Transactions') || toolName.includes('transactions_get')) {
-      return [args]; // Pass the full args object for transaction methods
+      // Apply smart defaults to prevent massive data returns
+      const transactionArgs = { ...args };
+
+      // Default limit for transactions to prevent context overflow
+      if (!transactionArgs.limit) {
+        transactionArgs.limit = 25; // Default to 25 transactions
+      }
+
+      // If no date range specified, default to last 30 days
+      if (!transactionArgs.startDate && !transactionArgs.endDate) {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 30);
+
+        transactionArgs.startDate = startDate.toISOString().split('T')[0];
+        transactionArgs.endDate = endDate.toISOString().split('T')[0];
+      }
+
+      // Cap limit to reasonable maximum
+      if (transactionArgs.limit && transactionArgs.limit > 100) {
+        transactionArgs.limit = 100;
+      }
+
+      return [transactionArgs];
     }
 
     // Create/update methods that expect data object
@@ -355,8 +539,17 @@ class MonarchMcpServer {
       return [args.data];
     }
 
+    // Apply smart defaults for data-heavy operations
+    const safeArgs = { ...args };
+
+    // For methods that might return lots of data, add reasonable limits
+    if (toolName.includes('getAll') && toolName.includes('accounts')) {
+      // Accounts are usually not too many, keep as-is
+      return Object.keys(safeArgs || {}).length === 0 ? [] : [safeArgs];
+    }
+
     // Default: if args is empty object, pass no parameters; otherwise pass as single object
-    return Object.keys(args || {}).length === 0 ? [] : [args];
+    return Object.keys(safeArgs || {}).length === 0 ? [] : [safeArgs];
   }
 
   private async ensureAuthenticated() {
