@@ -98,7 +98,7 @@ class MonarchMcpServer {
           content: [
             {
               type: 'text',
-              text: this.formatResult(name, result),
+              text: this.formatResult(name, result, args),
             },
           ],
         };
@@ -165,6 +165,22 @@ class MonarchMcpServer {
         description: `${this.generateMethodDescription('client', methodName)}`,
         inputSchema: this.generateInputSchema('client', methodName),
       });
+    });
+
+    // Add special natural language transaction query tool
+    tools.push({
+      name: 'transactions_smartQuery',
+      description: 'Smart transaction search using natural language queries (e.g., "last 3 Amazon charges", "largest transactions this month")',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Natural language query (e.g., "last 5 Amazon purchases", "biggest transactions this month", "Starbucks charges over $10")'
+          },
+        },
+        required: ['query'],
+      },
     });
 
     return tools;
@@ -289,6 +305,11 @@ class MonarchMcpServer {
   }
 
   private async callDynamicMethod(toolName: string, args: any): Promise<any> {
+    // Handle special smart query tool
+    if (toolName === 'transactions_smartQuery') {
+      return await this.handleSmartTransactionQuery(args.query);
+    }
+
     // Handle direct client methods
     if (typeof this.monarchClient[toolName] === 'function') {
       return await this.monarchClient[toolName](...this.adaptArguments(toolName, args));
@@ -312,14 +333,55 @@ class MonarchMcpServer {
     );
   }
 
-  private formatResult(toolName: string, result: any): string {
+  private async handleSmartTransactionQuery(query: string): Promise<any> {
+    console.error(`🧠 Processing smart query: "${query}"`);
+
+    // Parse the natural language query
+    const parsedArgs = this.parseNaturalLanguageQuery(query, {});
+
+    // Default to searching transactions with the parsed parameters
+    const transactionArgs: any = {
+      search: parsedArgs.search,
+      limit: parsedArgs.limit || 25,
+      startDate: parsedArgs.startDate,
+      endDate: parsedArgs.endDate,
+      absAmountRange: parsedArgs.absAmountRange,
+      _sortByAmount: parsedArgs._sortByAmount,
+      _originalQuery: query, // Store for formatting context
+    };
+
+    // Remove undefined values
+    Object.keys(transactionArgs).forEach(key => {
+      if (transactionArgs[key] === undefined) {
+        delete transactionArgs[key];
+      }
+    });
+
+    console.error(`🎯 Executing optimized query:`, JSON.stringify(transactionArgs));
+
+    // Call the transactions API with optimized parameters
+    const paginatedResult = await this.monarchClient.transactions.getTransactions(transactionArgs);
+
+    // Extract the transactions array and add metadata for formatting
+    const transactions = paginatedResult.transactions || [];
+
+    // Store the original args in the result for formatting context
+    (transactions as any)._smartQueryArgs = parsedArgs;
+    (transactions as any)._originalQuery = query;
+
+    console.error(`🎯 Smart query returned ${transactions.length} transactions`);
+
+    return transactions;
+  }
+
+  private formatResult(toolName: string, result: any, originalArgs?: any): string {
     if (!result) {
       return `No data returned for ${toolName}`;
     }
 
     // Handle arrays (like accounts, transactions)
     if (Array.isArray(result)) {
-      return this.formatArrayResult(toolName, result);
+      return this.formatArrayResult(toolName, result, originalArgs);
     }
 
     // Handle objects (like summaries, single items)
@@ -331,7 +393,7 @@ class MonarchMcpServer {
     return String(result);
   }
 
-  private formatArrayResult(toolName: string, data: any[]): string {
+  private formatArrayResult(toolName: string, data: any[], originalArgs?: any): string {
     if (data.length === 0) {
       return `No ${toolName.replace(/.*_/, '')} found.`;
     }
@@ -339,8 +401,19 @@ class MonarchMcpServer {
     // Format based on data type
     if (toolName.includes('accounts')) {
       return this.formatAccounts(data);
-    } else if (toolName.includes('transactions')) {
-      return this.formatTransactions(data);
+    } else if (toolName.includes('transactions') || toolName === 'transactions_smartQuery') {
+      // For smart queries, use the stored smart query args
+      const smartArgs = (data as any)._smartQueryArgs || originalArgs;
+      const query = (data as any)._originalQuery;
+
+      // Add query context to the formatted output
+      const formatted = this.formatTransactions(data, smartArgs);
+
+      if (query) {
+        return `🧠 **Smart Query**: "${query}"\n\n${formatted}`;
+      }
+
+      return formatted;
     } else if (toolName.includes('categories')) {
       return this.formatCategories(data);
     } else if (toolName.includes('budgets')) {
@@ -390,11 +463,24 @@ class MonarchMcpServer {
     return summary + formatted + `\n\n**Total Balance: $${totalBalance.toLocaleString()}**`;
   }
 
-  private formatTransactions(transactions: any[]): string {
-    const summary = `💳 **Transaction Summary** (${transactions.length} transactions)\n\n`;
+  private formatTransactions(transactions: any[], originalArgs?: any): string {
+    let processedTransactions = [...transactions];
+
+    // Apply post-processing sorting if requested
+    if (originalArgs?._sortByAmount) {
+      processedTransactions.sort((a, b) => {
+        const amountA = Math.abs(a.amount || 0);
+        const amountB = Math.abs(b.amount || 0);
+        return originalArgs._sortByAmount === 'desc' ? amountB - amountA : amountA - amountB;
+      });
+    }
+
+    const summary = `💳 **Transaction Summary** (${processedTransactions.length} transactions)\n\n`;
 
     let totalAmount = 0;
-    const formatted = transactions.slice(0, 20).map(txn => {
+    const displayCount = Math.min(20, processedTransactions.length);
+
+    const formatted = processedTransactions.slice(0, displayCount).map((txn, index) => {
       const amount = txn.amount || 0;
       totalAmount += Math.abs(amount);
 
@@ -402,14 +488,17 @@ class MonarchMcpServer {
       const merchant = txn.merchantName || txn.description || 'Unknown merchant';
       const category = txn.category?.name || 'Uncategorized';
 
-      return `• ${date} - **${merchant}**
+      // Add ranking for sorted results
+      const ranking = originalArgs?._sortByAmount ? `${index + 1}. ` : '• ';
+
+      return `${ranking}${date} - **${merchant}**
   Amount: ${amount >= 0 ? '+' : '-'}$${Math.abs(amount).toLocaleString()}
   Category: ${category}
   Account: ${txn.account?.displayName || 'Unknown'}`;
     }).join('\n\n');
 
     return summary + formatted +
-           (transactions.length > 20 ? `\n\n... and ${transactions.length - 20} more transactions` : '') +
+           (processedTransactions.length > displayCount ? `\n\n... and ${processedTransactions.length - displayCount} more transactions` : '') +
            `\n\n**Total Transaction Volume: $${totalAmount.toLocaleString()}**`;
   }
 
@@ -472,6 +561,93 @@ Updated: ${account.displayLastUpdatedAt ? new Date(account.displayLastUpdatedAt)
     return relevant;
   }
 
+  private parseNaturalLanguageQuery(query: string, existingArgs: any): any {
+    const enhancedArgs: any = {};
+    const lowerQuery = query.toLowerCase();
+
+    // Extract number/quantity (e.g., "last 3", "5 recent", "10 largest")
+    const numberMatch = lowerQuery.match(/(?:last|recent|top|first)\s+(\d+)|(\d+)\s+(?:last|recent|top|largest|biggest|smallest)/);
+    if (numberMatch) {
+      const number = parseInt(numberMatch[1] || numberMatch[2]);
+      if (number && number <= 100) {
+        enhancedArgs.limit = number;
+      }
+    }
+
+    // Extract merchant/search terms (common merchants and patterns)
+    const merchantPatterns = [
+      // Major retailers
+      { pattern: /amazon|amzn/i, search: 'amazon' },
+      { pattern: /walmart|wal-mart/i, search: 'walmart' },
+      { pattern: /target/i, search: 'target' },
+      { pattern: /costco/i, search: 'costco' },
+      { pattern: /starbucks/i, search: 'starbucks' },
+      { pattern: /mcdonalds|mcdonald's/i, search: 'mcdonalds' },
+
+      // Services
+      { pattern: /netflix/i, search: 'netflix' },
+      { pattern: /spotify/i, search: 'spotify' },
+      { pattern: /uber|lyft/i, search: 'uber' },
+      { pattern: /apple|app store/i, search: 'apple' },
+      { pattern: /google|youtube/i, search: 'google' },
+
+      // Categories
+      { pattern: /gas\s+station|gasoline|fuel/i, search: 'gas' },
+      { pattern: /restaurant|dining|food/i, search: 'restaurant' },
+      { pattern: /grocery|groceries/i, search: 'grocery' },
+      { pattern: /subscription|subscriptions/i, search: 'subscription' },
+    ];
+
+    for (const { pattern, search } of merchantPatterns) {
+      if (pattern.test(lowerQuery)) {
+        enhancedArgs.search = search;
+        break;
+      }
+    }
+
+    // Extract time periods
+    if (lowerQuery.includes('this month')) {
+      const now = new Date();
+      enhancedArgs.startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      enhancedArgs.endDate = now.toISOString().split('T')[0];
+    } else if (lowerQuery.includes('last month')) {
+      const now = new Date();
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      enhancedArgs.startDate = lastMonth.toISOString().split('T')[0];
+      enhancedArgs.endDate = lastMonthEnd.toISOString().split('T')[0];
+    } else if (lowerQuery.includes('this week')) {
+      const now = new Date();
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      enhancedArgs.startDate = startOfWeek.toISOString().split('T')[0];
+      enhancedArgs.endDate = now.toISOString().split('T')[0];
+    }
+
+    // Extract amount ranges
+    const amountMatch = lowerQuery.match(/(?:over|above|more than)\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)|(?:under|below|less than)\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+    if (amountMatch) {
+      const amount = parseFloat((amountMatch[1] || amountMatch[2]).replace(/,/g, ''));
+      if (lowerQuery.includes('over') || lowerQuery.includes('above') || lowerQuery.includes('more than')) {
+        enhancedArgs.absAmountRange = [amount, undefined];
+      } else {
+        enhancedArgs.absAmountRange = [undefined, amount];
+      }
+    }
+
+    // Handle "largest" or "biggest" - sort by amount desc
+    if (lowerQuery.includes('largest') || lowerQuery.includes('biggest') || lowerQuery.includes('highest')) {
+      // Note: We'll need to sort results after fetching since GraphQL might not support this
+      enhancedArgs._sortByAmount = 'desc';
+    } else if (lowerQuery.includes('smallest') || lowerQuery.includes('lowest')) {
+      enhancedArgs._sortByAmount = 'asc';
+    }
+
+    console.error(`🔍 Parsed query "${query}" into:`, JSON.stringify(enhancedArgs));
+
+    return enhancedArgs;
+  }
+
   private adaptArguments(toolName: string, args: any): any[] {
     // Methods that take no parameters
     const noParamMethods = [
@@ -510,6 +686,12 @@ Updated: ${account.displayLastUpdatedAt ? new Date(account.displayLastUpdatedAt)
     if (toolName.includes('Transactions') || toolName.includes('transactions_get')) {
       // Apply smart defaults to prevent massive data returns
       const transactionArgs = { ...args };
+
+      // Parse natural language search queries for better targeting
+      if (transactionArgs.search) {
+        const enhancedArgs = this.parseNaturalLanguageQuery(transactionArgs.search, transactionArgs);
+        Object.assign(transactionArgs, enhancedArgs);
+      }
 
       // Default limit for transactions to prevent context overflow
       if (!transactionArgs.limit) {
