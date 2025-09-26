@@ -10,11 +10,15 @@ import { z } from 'zod';
 
 const { MonarchClient } = require('monarchmoney');
 
+// Configuration schema - automatically detected by Smithery
 export const configSchema = z.object({
-  email: z.string().email().describe("MonarchMoney email address"),
-  password: z.string().min(1).describe("MonarchMoney password"),
-  mfaSecret: z.string().optional().describe("Optional MFA secret for TOTP")
-});
+  email: z.string().email()
+    .describe("MonarchMoney email address for login"),
+  password: z.string().min(1)
+    .describe("MonarchMoney password"),
+  mfaSecret: z.string().optional()
+    .describe("Optional MFA/TOTP secret for two-factor authentication")
+}).describe("MonarchMoney Account Configuration");
 
 class MonarchMcpServer {
   private server: Server;
