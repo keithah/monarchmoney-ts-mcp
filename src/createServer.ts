@@ -5,39 +5,11 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { config } from 'dotenv';
 import { z } from 'zod';
-
-config();
-
-// Globally redirect ALL console output to stderr to prevent JSON-RPC protocol issues
-const originalConsole = {
-  log: console.log,
-  info: console.info,
-  warn: console.warn,
-  debug: console.debug
-};
-
-console.log = (...args: any[]) => console.error(...args);
-console.info = (...args: any[]) => console.error(...args);
-console.warn = (...args: any[]) => console.error(...args);
-console.debug = (...args: any[]) => console.error(...args);
 
 const { MonarchClient } = require('monarchmoney');
 
-const ConfigSchema = z.object({
-  MONARCH_EMAIL: z.string().email(),
-  MONARCH_PASSWORD: z.string().min(1),
-  MONARCH_MFA_SECRET: z.string().optional(),
-});
-
-export interface ServerConfig {
-  email?: string;
-  password?: string;
-  mfaSecret?: string;
-}
-
-export default function createServer(config?: { config?: ServerConfig }) {
+export default function createServer({ config }: { config: { email: string; password: string; mfaSecret?: string } }) {
   const server = new Server(
     {
       name: 'monarchmoney-mcp',
@@ -63,29 +35,16 @@ export default function createServer(config?: { config?: ServerConfig }) {
     }
 
     try {
-      // Use config from parameter if provided, otherwise from environment
-      let credentials: any;
-
-      if (config?.config) {
-        credentials = config.config;
-      } else {
-        credentials = ConfigSchema.parse(process.env);
-      }
-
-      const email = credentials.email || credentials.MONARCH_EMAIL;
-      const password = credentials.password || credentials.MONARCH_PASSWORD;
-      const mfaSecretKey = credentials.mfaSecret || credentials.MONARCH_MFA_SECRET;
-
-      console.error(`🔐 Attempting authentication for: ${email}`);
+      console.log(`🔐 Attempting authentication for: ${config.email}`);
 
       await monarchClient.login({
-        email,
-        password,
-        mfaSecretKey,
+        email: config.email,
+        password: config.password,
+        mfaSecretKey: config.mfaSecret,
       });
 
       isAuthenticated = true;
-      console.error(`✅ Successfully authenticated`);
+      console.log(`✅ Successfully authenticated`);
     } catch (error: any) {
       console.error(`💥 Authentication Error: ${error.message}`);
       throw new McpError(
@@ -101,14 +60,14 @@ export default function createServer(config?: { config?: ServerConfig }) {
       tools: [
         {
           name: "get_accounts",
-          description: "Get all MonarchMoney accounts with optimization features",
+          description: "Get all MonarchMoney accounts with AI optimization features (99% response reduction)",
           inputSchema: {
             type: "object",
             properties: {
               verbosity: {
                 type: "string",
                 enum: ["ultra-light", "light", "standard"],
-                description: "Response verbosity level",
+                description: "Response verbosity level for AI optimization",
                 default: "light"
               }
             }
@@ -133,6 +92,21 @@ export default function createServer(config?: { config?: ServerConfig }) {
           content: [{
             type: "text",
             text: `💰 ${accounts.length} accounts, Total: $${total.toLocaleString()}`
+          }]
+        };
+      }
+
+      if (verbosity === "light") {
+        const summary = accounts.map((acc: any) => ({
+          name: acc.displayName,
+          balance: acc.currentBalance,
+          type: acc.type?.display
+        }));
+
+        return {
+          content: [{
+            type: "text",
+            text: `📊 **Account Summary**\n\n${summary.map((a: any) => `• ${a.name}: $${a.balance?.toLocaleString() || '0'} (${a.type})`).join('\n')}`
           }]
         };
       }
