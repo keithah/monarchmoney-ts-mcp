@@ -1,6 +1,6 @@
 {
   "name": "monarchmoney-ts-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Model Context Protocol (MCP) server for MonarchMoney SDK",
   "main": "dist/index.js",
   "bin": {
@@ -36,6 +36,7 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
@@ -43,6 +44,7 @@
     "eslint": "^8.0.0",
     "jest": "^29.0.0",
     "prettier": "^3.0.0",
+    "ts-jest": "^29.4.4",
     "typescript": "^5.0.0"
   },
   "engines": {
