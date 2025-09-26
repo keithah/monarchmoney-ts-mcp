@@ -1,6 +1,6 @@
 {
   "name": "monarchmoney-ts-mcp",
-  "version": "0.0.8",
+  "version": "0.1.0",
   "description": "Model Context Protocol (MCP) server for MonarchMoney SDK",
   "main": "dist/index.js",
   "bin": {
