@@ -290,7 +290,7 @@ class MonarchMcpServer {
   private async callDynamicMethod(toolName: string, args: any): Promise<any> {
     // Handle direct client methods
     if (typeof this.monarchClient[toolName] === 'function') {
-      return await this.monarchClient[toolName](args);
+      return await this.monarchClient[toolName](...this.adaptArguments(toolName, args));
     }
 
     // Handle module methods (e.g., "accounts_getAll")
@@ -298,10 +298,10 @@ class MonarchMcpServer {
     if (parts.length >= 2) {
       const moduleName = parts[0];
       const methodName = parts.slice(1).join('_');
-      
+
       const module = this.monarchClient[moduleName];
       if (module && typeof module[methodName] === 'function') {
-        return await module[methodName](args);
+        return await module[methodName](...this.adaptArguments(toolName, args));
       }
     }
 
@@ -309,6 +309,54 @@ class MonarchMcpServer {
       ErrorCode.MethodNotFound,
       `Unknown tool: ${toolName}`
     );
+  }
+
+  private adaptArguments(toolName: string, args: any): any[] {
+    // Methods that take no parameters
+    const noParamMethods = [
+      'accounts_getAll',
+      'accounts_getBalances',
+      'accounts_getTypeOptions',
+      'transactions_getTransactionsSummary',
+      'transactions_getTransactionsSummaryCard',
+      'budgets_getBudgets',
+      'categories_getCategories',
+      'cashflow_getCashflowSummary',
+      'recurring_getRecurringStreams',
+      'institutions_getInstitutions',
+      'insights_getInsights',
+      'get_me'
+    ];
+
+    if (noParamMethods.includes(toolName)) {
+      return [];
+    }
+
+    // Methods that take a single ID parameter
+    if (toolName.includes('getById') || toolName.includes('ById')) {
+      return [args.id];
+    }
+
+    // Methods that take date range parameters
+    if (toolName.includes('History') || toolName.includes('NetWorth')) {
+      const params = [];
+      if (args.startDate) params.push(args.startDate);
+      if (args.endDate) params.push(args.endDate);
+      return params.length > 0 ? [{ startDate: args.startDate, endDate: args.endDate }] : [];
+    }
+
+    // Transaction methods with filtering options
+    if (toolName.includes('Transactions') || toolName.includes('transactions_get')) {
+      return [args]; // Pass the full args object for transaction methods
+    }
+
+    // Create/update methods that expect data object
+    if (toolName.includes('create') || toolName.includes('update')) {
+      return [args.data];
+    }
+
+    // Default: if args is empty object, pass no parameters; otherwise pass as single object
+    return Object.keys(args || {}).length === 0 ? [] : [args];
   }
 
   private async ensureAuthenticated() {
