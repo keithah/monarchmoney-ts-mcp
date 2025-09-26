@@ -75,15 +75,15 @@ if (fs.existsSync(nodeModulesSource)) {
   // Handle local monarchmoney dependency
   const monarchmoneySource = path.join(__dirname, '../../monarchmoney-ts');
   if (fs.existsSync(monarchmoneySource)) {
-    // Copy built monarchmoney package directly with correct structure
+    // Copy built monarchmoney package with proper structure
     const monarchmoneyDest = path.join(bundleDir, 'node_modules', 'monarchmoney');
     fs.mkdirSync(monarchmoneyDest, { recursive: true });
 
-    // Copy dist contents to monarchmoney root
-    execSync(`cp -r "${monarchmoneySource}/dist"/* "${monarchmoneyDest}/"`, { stdio: 'pipe' });
+    // Copy the entire dist folder to preserve structure (main: "dist/cjs/index.js")
+    execSync(`cp -r "${monarchmoneySource}/dist" "${monarchmoneyDest}/"`, { stdio: 'pipe' });
     execSync(`cp "${monarchmoneySource}/package.json" "${monarchmoneyDest}/"`, { stdio: 'pipe' });
 
-    console.log('✅ Copied local monarchmoney package');
+    console.log('✅ Copied local monarchmoney package with dist structure');
 
     // Update package.json to use standard dependency
     tempPackageJson.dependencies.monarchmoney = "^1.0.2";
