@@ -67,7 +67,7 @@ class MonarchMcpServer {
       if (!email || !password) {
         throw new McpError(
           ErrorCode.InvalidRequest,
-          'MonarchMoney credentials are required. Please configure email and password.'
+          'MonarchMoney credentials are required. Please configure your credentials in Smithery or set MONARCH_EMAIL and MONARCH_PASSWORD environment variables.'
         );
       }
 
@@ -91,25 +91,28 @@ class MonarchMcpServer {
   }
 
   private setupToolHandlers(): void {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        {
-          name: "get_accounts",
-          description: "Get all MonarchMoney accounts with AI optimization features (99% response reduction)",
-          inputSchema: {
-            type: "object",
-            properties: {
-              verbosity: {
-                type: "string",
-                enum: ["ultra-light", "light", "standard"],
-                description: "Response verbosity level for AI optimization",
-                default: "light"
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      console.log('📋 Listing available tools...');
+      return {
+        tools: [
+          {
+            name: "get_accounts",
+            description: "Get all MonarchMoney accounts with AI optimization features (99% response reduction)",
+            inputSchema: {
+              type: "object",
+              properties: {
+                verbosity: {
+                  type: "string",
+                  enum: ["ultra-light", "light", "standard"],
+                  description: "Response verbosity level for AI optimization",
+                  default: "light"
+                }
               }
             }
           }
-        }
-      ]
-    }));
+        ]
+      };
+    });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
