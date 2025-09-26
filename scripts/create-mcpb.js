@@ -74,6 +74,29 @@ fs.writeFileSync(
   JSON.stringify(bundlePackageJson, null, 2)
 );
 
+// Create manifest.json for MCP bundle compatibility
+const manifest = {
+  manifest_version: 1,
+  name: bundleJson.displayName || bundleJson.name,
+  version: bundleJson.version,
+  description: bundleJson.description,
+  author: bundleJson.author,
+  homepage: bundleJson.homepage,
+  license: bundleJson.license,
+  mcp: {
+    server: bundleJson.server,
+    tools: bundleJson.tools,
+    requirements: bundleJson.requirements
+  },
+  keywords: bundleJson.keywords,
+  examples: bundleJson.examples
+};
+
+fs.writeFileSync(
+  path.join(bundleDir, 'manifest.json'),
+  JSON.stringify(manifest, null, 2)
+);
+
 // Create installation script
 const installScript = `#!/usr/bin/env node
 
