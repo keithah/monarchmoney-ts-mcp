@@ -38,10 +38,20 @@ class MonarchMcpServer {
       }
     );
 
+    // Temporarily suppress console.log during MonarchClient initialization to prevent JSON-RPC protocol issues
+    const originalConsoleLog = console.log;
+    console.log = (...args: any[]) => {
+      // Redirect MonarchClient logs to stderr instead of stdout
+      console.error(...args);
+    };
+
     this.monarchClient = new MonarchClient({
       baseURL: 'https://api.monarchmoney.com',
       timeout: 30000,
     });
+
+    // Restore original console.log
+    console.log = originalConsoleLog;
 
     this.setupToolHandlers();
   }
@@ -288,12 +298,21 @@ class MonarchMcpServer {
 
     try {
       const config = ConfigSchema.parse(process.env);
-      
+
+      // Redirect console.log to stderr during login to prevent JSON-RPC protocol issues
+      const originalConsoleLog = console.log;
+      console.log = (...args: any[]) => {
+        console.error(...args);
+      };
+
       await this.monarchClient.login({
         email: config.MONARCH_EMAIL,
         password: config.MONARCH_PASSWORD,
         mfaSecretKey: config.MONARCH_MFA_SECRET,
       });
+
+      // Restore original console.log
+      console.log = originalConsoleLog;
 
       this.isAuthenticated = true;
     } catch (error) {
