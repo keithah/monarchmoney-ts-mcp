@@ -8,11 +8,22 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-const { MonarchClient } = require('monarchmoney');
 import { config } from 'dotenv';
 import { z } from 'zod';
 
 config();
+
+// Globally redirect console.log to stderr to prevent JSON-RPC protocol issues
+// This must be done before importing MonarchClient
+const originalConsoleLog = console.log;
+console.log = (...args: any[]) => {
+  console.error(...args);
+};
+
+const { MonarchClient } = require('monarchmoney');
+
+// Restore console.log after MonarchClient is loaded
+console.log = originalConsoleLog;
 
 const ConfigSchema = z.object({
   MONARCH_EMAIL: z.string().email(),
@@ -38,20 +49,10 @@ class MonarchMcpServer {
       }
     );
 
-    // Temporarily suppress console.log during MonarchClient initialization to prevent JSON-RPC protocol issues
-    const originalConsoleLog = console.log;
-    console.log = (...args: any[]) => {
-      // Redirect MonarchClient logs to stderr instead of stdout
-      console.error(...args);
-    };
-
     this.monarchClient = new MonarchClient({
       baseURL: 'https://api.monarchmoney.com',
       timeout: 30000,
     });
-
-    // Restore original console.log
-    console.log = originalConsoleLog;
 
     this.setupToolHandlers();
   }
@@ -299,11 +300,9 @@ class MonarchMcpServer {
     try {
       const config = ConfigSchema.parse(process.env);
 
-      // Redirect console.log to stderr during login to prevent JSON-RPC protocol issues
+      // Temporarily redirect console.log to stderr during login
       const originalConsoleLog = console.log;
-      console.log = (...args: any[]) => {
-        console.error(...args);
-      };
+      console.log = (...args: any[]) => console.error(...args);
 
       await this.monarchClient.login({
         email: config.MONARCH_EMAIL,
@@ -311,9 +310,7 @@ class MonarchMcpServer {
         mfaSecretKey: config.MONARCH_MFA_SECRET,
       });
 
-      // Restore original console.log
       console.log = originalConsoleLog;
-
       this.isAuthenticated = true;
     } catch (error) {
       throw new McpError(
