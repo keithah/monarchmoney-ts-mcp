@@ -44,7 +44,7 @@ const filesToCopy = [
 filesToCopy.forEach(file => {
   const sourcePath = path.join(__dirname, '..', file);
   const destPath = path.join(bundleDir, path.basename(file));
-  
+
   if (fs.existsSync(sourcePath)) {
     fs.copyFileSync(sourcePath, destPath);
     console.log(`✅ Copied ${file}`);
@@ -53,17 +53,50 @@ filesToCopy.forEach(file => {
   }
 });
 
-// Create a simplified package.json for the bundle
+// Copy node_modules dependencies
+console.log('📦 Installing dependencies for MCPB...');
+const nodeModulesSource = path.join(__dirname, '..', 'node_modules');
+const nodeModulesDest = path.join(bundleDir, 'node_modules');
+
+if (fs.existsSync(nodeModulesSource)) {
+  // Create a production install for the bundle
+  const tempPackageJson = {
+    name: packageJson.name,
+    version: packageJson.version,
+    dependencies: packageJson.dependencies,
+    engines: packageJson.engines
+  };
+
+  fs.writeFileSync(
+    path.join(bundleDir, 'package.json'),
+    JSON.stringify(tempPackageJson, null, 2)
+  );
+
+  // Install production dependencies in bundle directory
+  try {
+    execSync('npm install --production --no-optional', {
+      cwd: bundleDir,
+      stdio: 'pipe'
+    });
+    console.log('✅ Dependencies installed successfully');
+  } catch (error) {
+    console.error('❌ Failed to install dependencies:', error.message);
+    process.exit(1);
+  }
+} else {
+  console.warn('⚠️  node_modules not found. Run npm install first.');
+  process.exit(1);
+}
+
+// Update package.json with additional fields after npm install
+const existingPackageJson = JSON.parse(fs.readFileSync(path.join(bundleDir, 'package.json'), 'utf8'));
 const bundlePackageJson = {
-  name: packageJson.name,
-  version: packageJson.version,
+  ...existingPackageJson,
   description: packageJson.description,
   main: 'index.js',
   bin: {
     [packageJson.name]: 'index.js'
   },
-  dependencies: packageJson.dependencies,
-  engines: packageJson.engines,
   keywords: packageJson.keywords,
   author: packageJson.author,
   license: packageJson.license
