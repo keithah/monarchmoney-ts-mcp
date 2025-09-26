@@ -1,0 +1,127 @@
+name: Release and Create MCPB
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run tests
+      run: npm test
+      
+    - name: Build project
+      run: npm run build
+      
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+          
+    - name: Create MCPB bundle
+      run: npm run bundle
+      
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        release_name: MonarchMoney MCP Server ${{ steps.version.outputs.VERSION }}
+        draft: false
+        prerelease: false
+        body: |
+          # MonarchMoney MCP Server ${{ steps.version.outputs.VERSION }}
+          
+          ## 🚀 One-Click Installation
+          
+          Download the `.mcpb` file below and double-click to install in Claude Desktop.
+          
+          ## 📦 What's Included
+          
+          - Complete MCP server for MonarchMoney integration
+          - 6 powerful tools for financial data access
+          - Secure authentication with MFA support
+          - Real-time data synchronization
+          
+          ## 🛠️ Available Tools
+          
+          - **get_accounts** - Access all your accounts
+          - **get_transactions** - Filter and analyze transactions  
+          - **get_budgets** - Review budget performance
+          - **get_categories** - Explore spending categories
+          - **get_cashflow_summary** - Understand income vs expenses
+          - **get_net_worth** - Track wealth over time
+          
+          ## 📋 Quick Setup
+          
+          1. Download the `.mcpb` file
+          2. Double-click to install
+          3. Configure your MonarchMoney credentials
+          4. Restart Claude Desktop
+          5. Start asking questions about your finances!
+          
+          ## 🔐 Security
+          
+          - All credentials stored locally
+          - Encrypted session management
+          - No data sent to third parties
+          
+          ---
+          
+          **Made with ❤️ for the MonarchMoney community**
+          
+    - name: Upload MCPB Bundle
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/monarchmoney-mcp-v1.0.0.mcpb
+        asset_name: monarchmoney-mcp-${{ steps.version.outputs.VERSION }}.mcpb
+        asset_content_type: application/zip
+        
+    - name: Upload Source Code (zip)
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/monarchmoney-mcp-source.zip
+        asset_name: monarchmoney-mcp-source-${{ steps.version.outputs.VERSION }}.zip
+        asset_content_type: application/zip
+        
+    - name: Create source archive
+      run: |
+        zip -r ./dist/monarchmoney-mcp-source.zip . \
+          -x "node_modules/*" \
+          -x ".git/*" \
+          -x "dist/*" \
+          -x "*.mcpb" \
+          -x "mcpb-temp/*"

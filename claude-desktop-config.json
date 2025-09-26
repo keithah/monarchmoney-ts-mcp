@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "monarchmoney": {
+      "command": "node",
+      "args": ["/home/keith/src/monarchmoney-ts-mcp/dist/index.js"],
+      "env": {
+        "MONARCH_EMAIL": "your-email@example.com",
+        "MONARCH_PASSWORD": "your-password",
+        "MONARCH_MFA_SECRET": "your-mfa-secret-key"
+      }
+    }
+  }
+}

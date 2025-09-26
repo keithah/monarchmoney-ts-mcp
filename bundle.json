@@ -1,0 +1,90 @@
+{
+  "name": "monarchmoney-mcp",
+  "version": "1.0.0",
+  "displayName": "MonarchMoney Personal Finance",
+  "description": "Access your MonarchMoney personal finance data through Claude Desktop with natural language queries",
+  "author": "Keith Ah <keithah@users.noreply.github.com>",
+  "homepage": "https://github.com/keithah/monarchmoney-ts-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/keithah/monarchmoney-ts-mcp.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "personal-finance",
+    "monarch-money",
+    "mcp",
+    "claude-desktop",
+    "ai-assistant",
+    "financial-data"
+  ],
+  "server": {
+    "command": "node",
+    "args": ["index.js"],
+    "env": {
+      "MONARCH_EMAIL": {
+        "description": "Your MonarchMoney email address",
+        "type": "string",
+        "required": true,
+        "secure": false
+      },
+      "MONARCH_PASSWORD": {
+        "description": "Your MonarchMoney password",
+        "type": "string",
+        "required": true,
+        "secure": true
+      },
+      "MONARCH_MFA_SECRET": {
+        "description": "Your TOTP/MFA secret key (optional)",
+        "type": "string",
+        "required": false,
+        "secure": true
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_accounts",
+      "description": "Get all your MonarchMoney accounts (checking, savings, credit cards, investments, etc.)"
+    },
+    {
+      "name": "get_transactions", 
+      "description": "Get transaction data with filtering options (date range, account, category, etc.)"
+    },
+    {
+      "name": "get_budgets",
+      "description": "Get your budget information and spending categories"
+    },
+    {
+      "name": "get_categories",
+      "description": "Get all transaction categories and subcategories"
+    },
+    {
+      "name": "get_cashflow_summary",
+      "description": "Get cashflow summary showing income vs expenses"
+    },
+    {
+      "name": "get_net_worth",
+      "description": "Get net worth data over time with date range options"
+    }
+  ],
+  "examples": [
+    "What's my current account balance across all accounts?",
+    "Show me my spending on restaurants this month",
+    "What's my net worth trend over the last year?",
+    "Which categories am I overspending in my budget?",
+    "Show me all transactions over $500 from last week"
+  ],
+  "requirements": {
+    "node": ">=18.0.0"
+  },
+  "installation": {
+    "preInstall": [
+      "npm install --production"
+    ],
+    "postInstall": [
+      "echo 'MonarchMoney MCP server installed successfully!'",
+      "echo 'Please configure your credentials in the Claude Desktop settings.'"
+    ]
+  }
+}
