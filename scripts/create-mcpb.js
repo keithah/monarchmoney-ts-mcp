@@ -72,9 +72,26 @@ if (fs.existsSync(nodeModulesSource)) {
     JSON.stringify(tempPackageJson, null, 2)
   );
 
+  // Handle local monarchmoney dependency
+  const monarchmoneySource = path.join(__dirname, '../../monarchmoney-ts');
+  if (fs.existsSync(monarchmoneySource)) {
+    // Copy built monarchmoney package directly
+    const monarchmoneyDest = path.join(bundleDir, 'node_modules', 'monarchmoney');
+    fs.mkdirSync(path.dirname(monarchmoneyDest), { recursive: true });
+    execSync(`cp -r "${monarchmoneySource}/dist" "${monarchmoneyDest}/"`, { stdio: 'pipe' });
+    execSync(`cp "${monarchmoneySource}/package.json" "${monarchmoneyDest}/"`, { stdio: 'pipe' });
+
+    // Update package.json to use standard dependency
+    tempPackageJson.dependencies.monarchmoney = "^1.0.2";
+    fs.writeFileSync(
+      path.join(bundleDir, 'package.json'),
+      JSON.stringify(tempPackageJson, null, 2)
+    );
+  }
+
   // Install production dependencies in bundle directory
   try {
-    execSync('npm install --production --no-optional', {
+    execSync('npm install --production --no-optional --ignore-scripts', {
       cwd: bundleDir,
       stdio: 'pipe'
     });
