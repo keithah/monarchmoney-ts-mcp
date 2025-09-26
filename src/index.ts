@@ -13,17 +13,24 @@ import { z } from 'zod';
 
 config();
 
-// Globally redirect console.log to stderr to prevent JSON-RPC protocol issues
+// Globally redirect ALL console output to stderr to prevent JSON-RPC protocol issues
 // This must be done before importing MonarchClient
-const originalConsoleLog = console.log;
-console.log = (...args: any[]) => {
-  console.error(...args);
+const originalConsole = {
+  log: console.log,
+  info: console.info,
+  warn: console.warn,
+  debug: console.debug
 };
+
+console.log = (...args: any[]) => console.error(...args);
+console.info = (...args: any[]) => console.error(...args);
+console.warn = (...args: any[]) => console.error(...args);
+console.debug = (...args: any[]) => console.error(...args);
 
 const { MonarchClient } = require('monarchmoney');
 
-// Restore console.log after MonarchClient is loaded
-console.log = originalConsoleLog;
+// Keep console redirected for the entire lifecycle to prevent any stdout pollution
+// Don't restore console methods
 
 const ConfigSchema = z.object({
   MONARCH_EMAIL: z.string().email(),
