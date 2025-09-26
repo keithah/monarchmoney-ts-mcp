@@ -74,22 +74,63 @@ fs.writeFileSync(
   JSON.stringify(bundlePackageJson, null, 2)
 );
 
-// Create manifest.json for MCP bundle compatibility
+// Create manifest.json for MCPB compatibility following official spec
 const manifest = {
-  manifest_version: 1,
-  name: bundleJson.displayName || bundleJson.name,
+  dxt_version: "0.1",
+  name: "monarchmoney-mcp",
+  display_name: bundleJson.displayName,
   version: bundleJson.version,
   description: bundleJson.description,
-  author: bundleJson.author,
-  homepage: bundleJson.homepage,
-  license: bundleJson.license,
-  mcp: {
-    server: bundleJson.server,
-    tools: bundleJson.tools,
-    requirements: bundleJson.requirements
+  author: {
+    name: "Keith Ah",
+    url: "https://github.com/keithah"
   },
   keywords: bundleJson.keywords,
-  examples: bundleJson.examples
+  server: {
+    type: "node",
+    entry_point: "index.js",
+    mcp_config: {
+      command: "node",
+      args: ["${__dirname}/index.js"],
+      env: {
+        MONARCH_EMAIL: "${user_config.MONARCH_EMAIL}",
+        MONARCH_PASSWORD: "${user_config.MONARCH_PASSWORD}",
+        MONARCH_MFA_SECRET: "${user_config.MONARCH_MFA_SECRET}"
+      }
+    }
+  },
+  tools_generated: true,
+  compatibility: {
+    claude_desktop: ">=0.10.0",
+    platforms: ["darwin", "win32", "linux"],
+    runtimes: {
+      node: ">=18.0.0"
+    }
+  },
+  user_config: {
+    MONARCH_EMAIL: {
+      type: "string",
+      title: "MonarchMoney Email",
+      description: "Your MonarchMoney email address",
+      sensitive: false,
+      required: true
+    },
+    MONARCH_PASSWORD: {
+      type: "string",
+      title: "MonarchMoney Password",
+      description: "Your MonarchMoney password",
+      sensitive: true,
+      required: true
+    },
+    MONARCH_MFA_SECRET: {
+      type: "string",
+      title: "MonarchMoney MFA Secret",
+      description: "Your TOTP/MFA secret key (optional)",
+      sensitive: true,
+      required: false
+    }
+  },
+  license: bundleJson.license
 };
 
 fs.writeFileSync(
