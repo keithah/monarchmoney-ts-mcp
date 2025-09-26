@@ -66,23 +66,34 @@ class MonarchMcpServer {
 
   private setupToolHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      await this.ensureAuthenticated();
-      
-      // Dynamically discover all available methods from the MonarchMoney client
-      const tools = this.discoverAvailableTools();
-      
-      return { tools };
+      console.error('🔍 Client requesting tools list...');
+
+      try {
+        await this.ensureAuthenticated();
+        console.error('✅ Authentication successful, discovering tools...');
+
+        // Dynamically discover all available methods from the MonarchMoney client
+        const tools = this.discoverAvailableTools();
+        console.error(`🛠️ Discovered ${tools.length} tools`);
+
+        return { tools };
+      } catch (error) {
+        console.error('❌ Failed to authenticate for tools list');
+        throw error; // Re-throw to let MCP handle it
+      }
     });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      await this.ensureAuthenticated();
-
       const { name, arguments: args } = request.params;
+      console.error(`🔧 Executing tool: ${name}`);
 
       try {
+        await this.ensureAuthenticated();
+
         // Dynamically call the method based on tool name
         const result = await this.callDynamicMethod(name, args || {});
-        
+        console.error(`✅ Tool ${name} executed successfully`);
+
         return {
           content: [
             {
@@ -92,9 +103,10 @@ class MonarchMcpServer {
           ],
         };
       } catch (error) {
+        console.error(`💥 Tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`);
         throw new McpError(
           ErrorCode.InternalError,
-          `Error executing tool ${name}: ${error instanceof Error ? error.message : String(error)}`
+          `🔧 Tool Error (${name}): ${error instanceof Error ? error.message : String(error)}`
         );
       }
     });
@@ -306,10 +318,17 @@ class MonarchMcpServer {
 
     try {
       const config = ConfigSchema.parse(process.env);
+    } catch (configError) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        `❌ Configuration Error: Please configure your MonarchMoney credentials in Claude Desktop extension settings. Missing or invalid: ${configError instanceof Error ? configError.message : String(configError)}`
+      );
+    }
 
-      // Temporarily redirect console.log to stderr during login
-      const originalConsoleLog = console.log;
-      console.log = (...args: any[]) => console.error(...args);
+    try {
+      const config = ConfigSchema.parse(process.env);
+
+      console.error(`🔐 Attempting authentication for: ${config.MONARCH_EMAIL}`);
 
       await this.monarchClient.login({
         email: config.MONARCH_EMAIL,
@@ -317,12 +336,39 @@ class MonarchMcpServer {
         mfaSecretKey: config.MONARCH_MFA_SECRET,
       });
 
-      console.log = originalConsoleLog;
       this.isAuthenticated = true;
-    } catch (error) {
+      console.error(`✅ Successfully authenticated: ${config.MONARCH_EMAIL}`);
+    } catch (error: any) {
+      // Enhanced error messages based on MonarchMoney API responses
+      let userFriendlyMessage = '';
+
+      if (error.message?.includes('Forbidden')) {
+        userFriendlyMessage = '🚫 AUTH ERROR: Invalid email/password combination. Please check your MonarchMoney credentials in Claude Desktop extension settings.';
+      } else if (error.message?.includes('401')) {
+        userFriendlyMessage = '🔑 AUTH ERROR: Unauthorized - Please verify your MonarchMoney email and password are correct.';
+      } else if (error.message?.includes('429')) {
+        userFriendlyMessage = '⏳ RATE LIMITED: Too many login attempts. Please wait a few minutes before trying again.';
+      } else if (error.message?.includes('MFA') || error.message?.includes('totp')) {
+        userFriendlyMessage = '🔐 MFA ERROR: Multi-Factor Authentication required. Please configure your TOTP secret in Claude Desktop extension settings.';
+      } else if (error.message?.includes('network') || error.message?.includes('timeout')) {
+        userFriendlyMessage = '🌐 NETWORK ERROR: Unable to connect to MonarchMoney servers. Check your internet connection.';
+      } else if (error.code === 'AUTH_ERROR') {
+        userFriendlyMessage = `🚫 MONARCH AUTH ERROR: ${error.message}`;
+      } else {
+        userFriendlyMessage = `❌ LOGIN FAILED: ${error.message || 'Unknown authentication error'}`;
+      }
+
+      // Log detailed error to stderr for debugging
+      console.error(`💥 Authentication Error Details: ${JSON.stringify({
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        stack: error.stack?.split('\n')[0]  // Just first line
+      }, null, 2)}`);
+
       throw new McpError(
         ErrorCode.InternalError,
-        `Authentication failed: ${error instanceof Error ? error.message : String(error)}`
+        userFriendlyMessage
       );
     }
   }
@@ -330,7 +376,8 @@ class MonarchMcpServer {
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('MonarchMoney MCP server running on stdio');
+    console.error('🚀 MonarchMoney MCP server running on stdio');
+    console.error('📋 Waiting for client connection...');
   }
 }
 
