@@ -1,6 +1,6 @@
 {
   "name": "monarchmoney-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "MonarchMoney Personal Finance",
   "description": "Access your MonarchMoney personal finance data through Claude Desktop with natural language queries",
   "author": "Keith Ah <keithah@users.noreply.github.com>",

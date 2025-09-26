@@ -178,10 +178,61 @@ class MonarchMcpServer {
             type: 'string',
             description: 'Natural language query (e.g., "last 5 Amazon purchases", "biggest transactions this month", "Starbucks charges over $10")'
           },
+          verbosity: {
+            type: 'string',
+            enum: ['brief', 'summary', 'detailed'],
+            description: 'Output detail level: brief (totals only), summary (default), detailed (full info)',
+            default: 'summary'
+          },
         },
         required: ['query'],
       },
     });
+
+    // Add pre-aggregated summary tools for ultra-efficient queries
+    const summaryTools = [
+      {
+        name: 'spending_getByCategoryMonth',
+        description: 'Get spending breakdown by category for current month (ultra-compact format)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            month: { type: 'string', description: 'Month in YYYY-MM format (defaults to current month)' },
+            topN: { type: 'number', description: 'Number of top categories to show (default: 10)', default: 10 },
+          },
+        },
+      },
+      {
+        name: 'accounts_getBalanceTrends',
+        description: 'Get account balance changes summary (gains/losses)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            period: { type: 'string', enum: ['week', 'month', 'quarter'], description: 'Period for comparison', default: 'month' },
+          },
+        },
+      },
+      {
+        name: 'budget_getVarianceSummary',
+        description: 'Get budget vs actual spending summary (over/under budget categories)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            month: { type: 'string', description: 'Month in YYYY-MM format (defaults to current month)' },
+          },
+        },
+      },
+      {
+        name: 'insights_getQuickStats',
+        description: 'Get key financial metrics in ultra-compact format',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+    ];
+
+    summaryTools.forEach(tool => tools.push(tool));
 
     return tools;
   }
@@ -273,6 +324,12 @@ class MonarchMcpServer {
           categoryIds: { type: 'array', items: { type: 'string' }, description: 'Filter by category IDs' },
           search: { type: 'string', description: 'Search term for merchant names or descriptions' },
           absAmountRange: { type: 'array', items: { type: 'number' }, description: 'Filter by amount range [min, max]' },
+          verbosity: {
+            type: 'string',
+            enum: ['brief', 'summary', 'detailed'],
+            description: 'Output detail level: brief (totals only), summary (default), detailed (full info)',
+            default: 'summary'
+          },
         },
       };
     }
@@ -297,10 +354,21 @@ class MonarchMcpServer {
       };
     }
 
-    // Default schema for methods without specific parameters
+    // Default schema for methods without specific parameters - add verbosity to data-heavy operations
+    const properties: any = {};
+
+    if (methodName.includes('getAll') || methodName.includes('get') && !methodName.includes('ById')) {
+      properties.verbosity = {
+        type: 'string',
+        enum: ['brief', 'summary', 'detailed'],
+        description: 'Output detail level: brief (totals only), summary (default), detailed (full info)',
+        default: 'summary'
+      };
+    }
+
     return {
       type: 'object',
-      properties: {},
+      properties,
     };
   }
 
@@ -308,6 +376,20 @@ class MonarchMcpServer {
     // Handle special smart query tool
     if (toolName === 'transactions_smartQuery') {
       return await this.handleSmartTransactionQuery(args.query);
+    }
+
+    // Handle pre-aggregated summary tools
+    if (toolName === 'spending_getByCategoryMonth') {
+      return await this.getSpendingByCategory(args);
+    }
+    if (toolName === 'accounts_getBalanceTrends') {
+      return await this.getBalanceTrends(args);
+    }
+    if (toolName === 'budget_getVarianceSummary') {
+      return await this.getBudgetVarianceSummary(args);
+    }
+    if (toolName === 'insights_getQuickStats') {
+      return await this.getQuickStats(args);
     }
 
     // Handle direct client methods
@@ -374,9 +456,116 @@ class MonarchMcpServer {
     return transactions;
   }
 
+  private async getSpendingByCategory(args: any): Promise<string> {
+    console.error('📊 Getting spending by category...');
+
+    const month = args.month || new Date().toISOString().substring(0, 7);
+    const topN = args.topN || 10;
+
+    const startDate = `${month}-01`;
+    const endDate = new Date(month + '-01');
+    endDate.setMonth(endDate.getMonth() + 1);
+    endDate.setDate(0);
+
+    // Get transactions for the month
+    const result = await this.monarchClient.transactions.getTransactions({
+      startDate,
+      endDate: endDate.toISOString().substring(0, 10),
+      limit: 1000, // Get more to calculate totals
+    });
+
+    const transactions = result.transactions || [];
+
+    // Group by category and sum amounts
+    const categoryTotals: { [key: string]: number } = {};
+    transactions.forEach((txn: any) => {
+      if (txn.amount < 0) { // Only expenses
+        const category = txn.category?.name || 'Uncategorized';
+        categoryTotals[category] = (categoryTotals[category] || 0) + Math.abs(txn.amount);
+      }
+    });
+
+    // Sort by spending amount and take top N
+    const sortedCategories = Object.entries(categoryTotals)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, topN);
+
+    const totalSpending = sortedCategories.reduce((sum, [,amount]) => sum + amount, 0);
+
+    return `💸 ${month} Spending: ${sortedCategories.map(([cat, amt]) =>
+      `${cat} $${amt.toFixed(0)}`).join(', ')} | Total: $${totalSpending.toFixed(0)}`;
+  }
+
+  private async getBalanceTrends(args: any): Promise<string> {
+    console.error('📈 Getting balance trends...');
+
+    const accounts = await this.monarchClient.accounts.getAll();
+
+    // For now, return current balances (would need historical data for real trends)
+    const totalBalance = accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0);
+    const assetAccounts = accounts.filter((acc: any) => acc.isAsset);
+    const liabilityAccounts = accounts.filter((acc: any) => !acc.isAsset);
+
+    const assets = assetAccounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0);
+    const liabilities = Math.abs(liabilityAccounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0));
+
+    return `📊 Assets: $${assets.toLocaleString()} | Liabilities: $${liabilities.toLocaleString()} | Net Worth: $${totalBalance.toLocaleString()}`;
+  }
+
+  private async getBudgetVarianceSummary(args: any): Promise<string> {
+    console.error('💰 Getting budget variance...');
+
+    try {
+      const budgets = await this.monarchClient.budgets.getBudgets();
+
+      let overBudget = 0;
+      let underBudget = 0;
+      let onTrack = 0;
+
+      budgets.forEach((budget: any) => {
+        const spent = budget.actual || budget.spent || 0;
+        const budgeted = budget.budgeted || budget.limit || 0;
+
+        if (budgeted > 0) {
+          const variance = spent - budgeted;
+          if (variance > budgeted * 0.1) overBudget++;
+          else if (variance < -budgeted * 0.1) underBudget++;
+          else onTrack++;
+        }
+      });
+
+      return `💰 Budget Status: ${overBudget} over budget, ${onTrack} on track, ${underBudget} under budget`;
+    } catch (error) {
+      return `💰 Budget data unavailable`;
+    }
+  }
+
+  private async getQuickStats(args: any): Promise<string> {
+    console.error('⚡ Getting quick stats...');
+
+    const [accounts, transactions] = await Promise.all([
+      this.monarchClient.accounts.getAll(),
+      this.monarchClient.transactions.getTransactions({ limit: 100 })
+    ]);
+
+    const totalBalance = accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0);
+    const recentTransactions = transactions.transactions?.length || 0;
+    const thisMonthSpending = transactions.transactions?.filter((t: any) =>
+      t.amount < 0 && new Date(t.date).getMonth() === new Date().getMonth()
+    ).reduce((sum: number, t: any) => sum + Math.abs(t.amount), 0) || 0;
+
+    return `⚡ Net Worth: $${totalBalance.toLocaleString()} | This Month: -$${thisMonthSpending.toFixed(0)} | ${recentTransactions} recent transactions`;
+  }
+
   private formatResult(toolName: string, result: any, originalArgs?: any): string {
     if (!result) {
       return `No data returned for ${toolName}`;
+    }
+
+    // Handle pre-aggregated summary tools that return formatted strings directly
+    const summaryTools = ['spending_getByCategoryMonth', 'accounts_getBalanceTrends', 'budget_getVarianceSummary', 'insights_getQuickStats'];
+    if (summaryTools.includes(toolName)) {
+      return String(result);
     }
 
     // Handle arrays (like accounts, transactions)
@@ -398,12 +587,15 @@ class MonarchMcpServer {
       return `No ${toolName.replace(/.*_/, '')} found.`;
     }
 
+    // Extract verbosity level
+    const verbosity = originalArgs?.verbosity || 'summary';
+
     // Format based on data type
     if (toolName.includes('accounts')) {
-      return this.formatAccounts(data);
+      return this.formatAccounts(data, verbosity);
     } else if (toolName.includes('transactions') || toolName === 'transactions_smartQuery') {
       // For smart queries, use the stored smart query args
-      const smartArgs = (data as any)._smartQueryArgs || originalArgs;
+      const smartArgs = { ...(data as any)._smartQueryArgs, ...originalArgs };
       const query = (data as any)._originalQuery;
 
       // Add query context to the formatted output
@@ -415,9 +607,9 @@ class MonarchMcpServer {
 
       return formatted;
     } else if (toolName.includes('categories')) {
-      return this.formatCategories(data);
+      return this.formatCategories(data, verbosity);
     } else if (toolName.includes('budgets')) {
-      return this.formatBudgets(data);
+      return this.formatBudgets(data, verbosity);
     }
 
     // Default formatting for other arrays
@@ -445,13 +637,38 @@ class MonarchMcpServer {
       .join('\n');
   }
 
-  private formatAccounts(accounts: any[]): string {
-    const summary = `📊 **Account Summary** (${accounts.length} accounts)\n\n`;
-
+  private formatAccounts(accounts: any[], verbosity: string = 'summary'): string {
     let totalBalance = 0;
+    accounts.forEach(acc => {
+      totalBalance += acc.currentBalance || acc.displayBalance || 0;
+    });
+
+    if (verbosity === 'brief') {
+      // Ultra-compact format
+      return `📊 ${accounts.length} accounts, Total: $${totalBalance.toLocaleString()}`;
+    }
+
+    if (verbosity === 'detailed') {
+      // Full detail format (existing format)
+      const summary = `📊 **Account Summary** (${accounts.length} accounts)\n\n`;
+      const formatted = accounts.map(acc => {
+        const balance = acc.currentBalance || acc.displayBalance || 0;
+
+        return `• **${acc.displayName || acc.name}**
+  Type: ${acc.type?.display || acc.subtype?.display || 'Unknown'}
+  Balance: $${balance.toLocaleString()}
+  Institution: ${acc.institution?.name || 'Manual'}
+  ${acc.mask ? `Account: ***${acc.mask}` : ''}
+  Updated: ${acc.displayLastUpdatedAt ? new Date(acc.displayLastUpdatedAt).toLocaleDateString() : 'Unknown'}`;
+      }).join('\n\n');
+
+      return summary + formatted + `\n\n**Total Balance: $${totalBalance.toLocaleString()}**`;
+    }
+
+    // Summary format (current default)
+    const summary = `📊 **Account Summary** (${accounts.length} accounts)\n\n`;
     const formatted = accounts.map(acc => {
       const balance = acc.currentBalance || acc.displayBalance || 0;
-      totalBalance += balance;
 
       return `• **${acc.displayName || acc.name}**
   Type: ${acc.type?.display || acc.subtype?.display || 'Unknown'}
@@ -465,6 +682,7 @@ class MonarchMcpServer {
 
   private formatTransactions(transactions: any[], originalArgs?: any): string {
     let processedTransactions = [...transactions];
+    const verbosity = originalArgs?.verbosity || 'summary';
 
     // Apply post-processing sorting if requested
     if (originalArgs?._sortByAmount) {
@@ -475,20 +693,50 @@ class MonarchMcpServer {
       });
     }
 
-    const summary = `💳 **Transaction Summary** (${processedTransactions.length} transactions)\n\n`;
-
     let totalAmount = 0;
+    processedTransactions.forEach(txn => {
+      totalAmount += Math.abs(txn.amount || 0);
+    });
+
+    if (verbosity === 'brief') {
+      // Ultra-compact format
+      return `💳 ${processedTransactions.length} transactions, Total: $${totalAmount.toLocaleString()}`;
+    }
+
+    if (verbosity === 'detailed') {
+      // Full detail format with more information
+      const summary = `💳 **Transaction Summary** (${processedTransactions.length} transactions)\n\n`;
+      const displayCount = Math.min(25, processedTransactions.length);
+
+      const formatted = processedTransactions.slice(0, displayCount).map((txn, index) => {
+        const amount = txn.amount || 0;
+        const date = txn.date ? new Date(txn.date).toLocaleDateString() : 'Unknown date';
+        const merchant = txn.merchantName || txn.description || 'Unknown merchant';
+        const category = txn.category?.name || 'Uncategorized';
+        const ranking = originalArgs?._sortByAmount ? `${index + 1}. ` : '• ';
+
+        return `${ranking}${date} - **${merchant}**
+  Amount: ${amount >= 0 ? '+' : '-'}$${Math.abs(amount).toLocaleString()}
+  Category: ${category}
+  Account: ${txn.account?.displayName || 'Unknown'}
+  ID: ${txn.id || 'N/A'}
+  ${txn.notes ? `Notes: ${txn.notes}` : ''}`;
+      }).join('\n\n');
+
+      return summary + formatted +
+             (processedTransactions.length > displayCount ? `\n\n... and ${processedTransactions.length - displayCount} more transactions` : '') +
+             `\n\n**Total Transaction Volume: $${totalAmount.toLocaleString()}**`;
+    }
+
+    // Summary format (current default)
+    const summary = `💳 **Transaction Summary** (${processedTransactions.length} transactions)\n\n`;
     const displayCount = Math.min(20, processedTransactions.length);
 
     const formatted = processedTransactions.slice(0, displayCount).map((txn, index) => {
       const amount = txn.amount || 0;
-      totalAmount += Math.abs(amount);
-
       const date = txn.date ? new Date(txn.date).toLocaleDateString() : 'Unknown date';
       const merchant = txn.merchantName || txn.description || 'Unknown merchant';
       const category = txn.category?.name || 'Uncategorized';
-
-      // Add ranking for sorted results
       const ranking = originalArgs?._sortByAmount ? `${index + 1}. ` : '• ';
 
       return `${ranking}${date} - **${merchant}**
@@ -502,7 +750,19 @@ class MonarchMcpServer {
            `\n\n**Total Transaction Volume: $${totalAmount.toLocaleString()}**`;
   }
 
-  private formatCategories(categories: any[]): string {
+  private formatCategories(categories: any[], verbosity: string = 'summary'): string {
+    if (verbosity === 'brief') {
+      return `🏷️ ${categories.length} categories`;
+    }
+
+    if (verbosity === 'detailed') {
+      return `🏷️ **Categories** (${categories.length} total)\n\n` +
+             categories.map(cat =>
+               `• **${cat.name}** ${cat.group ? `(${cat.group.name})` : ''}\n  ID: ${cat.id || 'N/A'}`
+             ).join('\n\n');
+    }
+
+    // Summary format (current default)
     return `🏷️ **Categories** (${categories.length} total)\n\n` +
            categories.slice(0, 15).map(cat =>
              `• **${cat.name}** ${cat.group ? `(${cat.group.name})` : ''}`
@@ -510,7 +770,30 @@ class MonarchMcpServer {
            (categories.length > 15 ? `\n... and ${categories.length - 15} more categories` : '');
   }
 
-  private formatBudgets(budgets: any[]): string {
+  private formatBudgets(budgets: any[], verbosity: string = 'summary'): string {
+    if (verbosity === 'brief') {
+      const totalBudgeted = budgets.reduce((sum, b) => sum + (b.budgeted || b.limit || 0), 0);
+      const totalSpent = budgets.reduce((sum, b) => sum + (b.actual || b.spent || 0), 0);
+      return `💰 ${budgets.length} budget categories, $${totalSpent.toLocaleString()}/$${totalBudgeted.toLocaleString()} spent`;
+    }
+
+    if (verbosity === 'detailed') {
+      return `💰 **Budget Summary** (${budgets.length} categories)\n\n` +
+             budgets.map(budget => {
+               const spent = budget.actual || budget.spent || 0;
+               const budgeted = budget.budgeted || budget.limit || 0;
+               const remaining = budgeted - spent;
+               const percentage = budgeted > 0 ? Math.round((spent / budgeted) * 100) : 0;
+
+               return `• **${budget.category?.name || budget.name}**
+  Budgeted: $${budgeted.toLocaleString()}
+  Spent: $${spent.toLocaleString()} (${percentage}%)
+  Remaining: $${remaining.toLocaleString()}
+  ID: ${budget.id || 'N/A'}`;
+             }).join('\n\n');
+    }
+
+    // Summary format (current default)
     return `💰 **Budget Summary** (${budgets.length} categories)\n\n` +
            budgets.slice(0, 10).map(budget => {
              const spent = budget.actual || budget.spent || 0;
