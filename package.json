@@ -5,18 +5,18 @@
   "type": "module",
   "module": "./src/createServer.ts",
   "bin": {
-    "monarchmoney-mcp": "./.smithery/index.cjs"
+    "monarchmoney-mcp": "./.smithery/stdio/index.cjs"
   },
   "files": [
     ".smithery"
   ],
   "scripts": {
     "build": "npm run build:stdio",
-    "build:stdio": "npx @smithery/cli build src/createServer.ts --transport stdio && echo '#!/usr/bin/env node' | cat - .smithery/index.cjs > temp && mv temp .smithery/index.cjs && chmod +x .smithery/index.cjs",
-    "build:shttp": "npx @smithery/cli build src/createServer.ts --transport shttp",
+    "build:stdio": "smithery build src/createServer.ts --transport stdio -o .smithery/stdio/index.cjs && echo '#!/usr/bin/env node' | cat - .smithery/stdio/index.cjs > temp && mv temp .smithery/stdio/index.cjs && chmod +x .smithery/stdio/index.cjs",
+    "build:shttp": "smithery build src/createServer.ts --transport shttp -o .smithery/shttp/index.cjs",
     "build:all": "npm run build:stdio && npm run build:shttp",
     "prepare": "npm run build:stdio",
-    "dev": "npx @smithery/cli dev",
+    "dev": "smithery dev",
     "test": "jest --passWithNoTests",
     "test:coverage": "jest src/__tests__ --coverage --testPathIgnorePatterns=integration",
     "lint": "eslint src/**/*.ts",
@@ -46,7 +46,7 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
-    "@smithery/cli": "^1.4.0",
+    "@smithery/cli": "^1.4.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
