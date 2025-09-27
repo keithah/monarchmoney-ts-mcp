@@ -1,200 +1,214 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ErrorCode,
-  ListToolsRequestSchema,
-  McpError,
-} from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
+#!/usr/bin/env node
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
 const { MonarchClient } = require('monarchmoney');
 
 // Configuration schema - automatically detected by Smithery
 export const configSchema = z.object({
-  email: z.string().email()
+  email: z.string().email().optional()
     .describe("MonarchMoney email address for login"),
-  password: z.string().min(1)
+  password: z.string().optional()
     .describe("MonarchMoney password"),
   mfaSecret: z.string().optional()
-    .describe("Optional MFA/TOTP secret for two-factor authentication")
+    .describe("Optional MFA/TOTP secret for two-factor authentication"),
+  debug: z.boolean().default(false).optional()
+    .describe("Enable debug logging"),
 }).describe("MonarchMoney Account Configuration");
 
-class MonarchMcpServer {
-  private server: Server;
-  private monarchClient: any;
-  private config: z.infer<typeof configSchema> | null = null;
-  private isAuthenticated = false;
+// Export stateless flag for MCP
+export const stateless = true;
 
-  constructor(config?: z.infer<typeof configSchema>) {
-    this.config = config || null;
-    this.server = new Server(
+/**
+ * MonarchMoney MCP Server
+ *
+ * This MCP server integrates with MonarchMoney API to provide financial data access.
+ * Features include account summaries, transaction history, budget tracking,
+ * and AI-optimized responses with 99% size reduction for context efficiency.
+ */
+
+export default function ({ config }: { config: z.infer<typeof configSchema> }) {
+  try {
+    // Add debugging for HTTP transport issues
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[monarchmoney-mcp] Server starting with config:', JSON.stringify(config, null, 2));
+    }
+
+    // Create MCP server
+    const server = new McpServer({
+      name: "monarchmoney-mcp",
+      version: "1.1.0"
+    });
+
+    // Initialize MonarchMoney client - handle missing credentials gracefully
+    const email = config.email || process.env.MONARCH_EMAIL;
+    const password = config.password || process.env.MONARCH_PASSWORD;
+    const mfaSecret = config.mfaSecret || process.env.MONARCH_MFA_SECRET;
+
+    // Create client conditionally - tools will check for credentials and return appropriate errors
+    let monarchClient: any = null;
+    let isAuthenticated = false;
+
+    if (email && password) {
+      monarchClient = new MonarchClient({
+        baseURL: 'https://api.monarchmoney.com',
+        timeout: 30000,
+      });
+    }
+
+    // Helper function to ensure authentication
+    const ensureAuthenticated = async () => {
+      if (isAuthenticated) return;
+
+      if (!monarchClient || !email || !password) {
+        throw new Error("MonarchMoney credentials are required. Please configure email and password or set MONARCH_EMAIL and MONARCH_PASSWORD environment variables.");
+      }
+
+      try {
+        await monarchClient.login({
+          email,
+          password,
+          mfaSecretKey: mfaSecret,
+        });
+        isAuthenticated = true;
+        console.log(`✅ MonarchMoney authenticated for: ${email}`);
+      } catch (error) {
+        throw new Error(`MonarchMoney authentication failed: ${error}`);
+      }
+    };
+
+    // Register get_accounts tool
+    server.tool(
+      "get_accounts",
+      "Get all MonarchMoney accounts with AI optimization features (99% response reduction)",
       {
-        name: 'monarchmoney-mcp',
-        version: '1.1.0',
+        verbosity: z.enum(["ultra-light", "light", "standard"]).optional().default("light")
+          .describe("Response verbosity level for AI optimization")
       },
-      {
-        capabilities: {
-          tools: {},
-        },
+      async ({ verbosity = "light" }) => {
+        await ensureAuthenticated();
+
+        const accounts = await monarchClient.accounts.getAll();
+
+        if (verbosity === "ultra-light") {
+          const total = accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0);
+          return `💰 ${accounts.length} accounts, Total: $${total.toLocaleString()}`;
+        }
+
+        if (verbosity === "light") {
+          const summary = accounts.map((acc: any) => ({
+            name: acc.displayName,
+            balance: acc.currentBalance,
+            type: acc.type?.display
+          }));
+
+          return {
+            total_accounts: accounts.length,
+            total_balance: accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0),
+            accounts: summary.map(a => ({
+              name: a.name,
+              balance: a.balance,
+              type: a.type
+            }))
+          };
+        }
+
+        return {
+          total_accounts: accounts.length,
+          accounts: accounts
+        };
       }
     );
 
-    this.monarchClient = new MonarchClient({
-      baseURL: 'https://api.monarchmoney.com',
-      timeout: 30000,
-    });
+    // Register get_transactions tool
+    server.tool(
+      "get_transactions",
+      "Get recent transactions with filtering and AI optimization",
+      {
+        limit: z.number().optional().default(25).describe("Maximum number of transactions to return"),
+        verbosity: z.enum(["ultra-light", "light", "standard"]).optional().default("light")
+          .describe("Response verbosity level for AI optimization"),
+        startDate: z.string().optional().describe("Start date (YYYY-MM-DD)"),
+        endDate: z.string().optional().describe("End date (YYYY-MM-DD)")
+      },
+      async ({ limit = 25, verbosity = "light", startDate, endDate }) => {
+        await ensureAuthenticated();
 
-    this.setupToolHandlers();
-    this.setupErrorHandling();
-  }
+        const args: any = { limit };
+        if (startDate) args.startDate = startDate;
+        if (endDate) args.endDate = endDate;
 
-  private setupErrorHandling(): void {
-    this.server.onerror = (error) => console.error('[MCP Error]', error);
-    process.on('SIGINT', async () => {
-      await this.server.close();
-      process.exit(0);
-    });
-  }
+        const result = await monarchClient.transactions.getTransactions(args);
+        const transactions = result.transactions || [];
 
-  private async ensureAuthenticated() {
-    if (this.isAuthenticated) {
-      return;
-    }
+        if (verbosity === "ultra-light") {
+          const totalAmount = transactions.reduce((sum: number, txn: any) => sum + Math.abs(txn.amount || 0), 0);
+          return `💳 ${transactions.length} transactions, Total: $${totalAmount.toLocaleString()}`;
+        }
 
-    try {
-      // Try config first, then environment variables as fallback
-      const email = this.config?.email || process.env.MONARCH_EMAIL;
-      const password = this.config?.password || process.env.MONARCH_PASSWORD;
-      const mfaSecretKey = this.config?.mfaSecret || process.env.MONARCH_MFA_SECRET;
+        if (verbosity === "light") {
+          return {
+            total_transactions: transactions.length,
+            transactions: transactions.slice(0, 10).map((txn: any) => ({
+              date: txn.date,
+              description: txn.merchantName || txn.description,
+              amount: txn.amount,
+              category: txn.category?.name
+            }))
+          };
+        }
 
-      if (!email || !password) {
-        throw new McpError(
-          ErrorCode.InvalidRequest,
-          'MonarchMoney credentials are required. Please configure your credentials in Smithery or set MONARCH_EMAIL and MONARCH_PASSWORD environment variables.'
-        );
+        return {
+          total_transactions: transactions.length,
+          transactions: transactions
+        };
       }
+    );
 
-      console.log(`🔐 Attempting authentication for: ${email}`);
+    // Register get_budgets tool
+    server.tool(
+      "get_budgets",
+      "Get budget information with spending analysis",
+      {
+        verbosity: z.enum(["ultra-light", "light", "standard"]).optional().default("light")
+          .describe("Response verbosity level for AI optimization")
+      },
+      async ({ verbosity = "light" }) => {
+        await ensureAuthenticated();
 
-      await this.monarchClient.login({
-        email,
-        password,
-        mfaSecretKey,
-      });
+        try {
+          const budgets = await monarchClient.budgets.getBudgets();
 
-      this.isAuthenticated = true;
-      console.log(`✅ Successfully authenticated`);
-    } catch (error: any) {
-      console.error(`💥 Authentication Error: ${error.message}`);
-      throw new McpError(
-        ErrorCode.InternalError,
-        `Authentication failed: ${error.message}`
-      );
-    }
-  }
-
-  private setupToolHandlers(): void {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      console.log('📋 Listing available tools...');
-      return {
-        tools: [
-          {
-            name: "get_accounts",
-            description: "Get all MonarchMoney accounts with AI optimization features (99% response reduction)",
-            inputSchema: {
-              type: "object",
-              properties: {
-                verbosity: {
-                  type: "string",
-                  enum: ["ultra-light", "light", "standard"],
-                  description: "Response verbosity level for AI optimization",
-                  default: "light"
-                }
-              }
-            }
+          if (verbosity === "ultra-light") {
+            const totalBudgeted = budgets.reduce((sum: number, b: any) => sum + (b.budgeted || 0), 0);
+            const totalSpent = budgets.reduce((sum: number, b: any) => sum + (b.actual || 0), 0);
+            return `💰 ${budgets.length} budgets, $${totalSpent.toLocaleString()}/$${totalBudgeted.toLocaleString()} spent`;
           }
-        ]
-      };
-    });
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-
-      try {
-        switch (name) {
-          case 'get_accounts':
-            return await this.handleGetAccounts(args);
-          default:
-            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+          return {
+            total_budgets: budgets.length,
+            budgets: budgets.map((budget: any) => ({
+              category: budget.category?.name || budget.name,
+              budgeted: budget.budgeted || 0,
+              spent: budget.actual || budget.spent || 0,
+              remaining: (budget.budgeted || 0) - (budget.actual || budget.spent || 0)
+            }))
+          };
+        } catch (error) {
+          throw new Error(`Failed to get budgets: ${error}`);
         }
-      } catch (error) {
-        if (error instanceof McpError) {
-          throw error;
-        }
-        throw new McpError(ErrorCode.InternalError, `Tool execution failed: ${error}`);
       }
-    });
-  }
+    );
 
-  private async handleGetAccounts(args: any) {
-    await this.ensureAuthenticated();
+    // Return the server object (Smithery CLI handles transport)
+    return server.server;
 
-    const accounts = await this.monarchClient.accounts.getAll();
-    const verbosity = args?.verbosity || "light";
-
-    if (verbosity === "ultra-light") {
-      const total = accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0);
-      return {
-        content: [{
-          type: "text",
-          text: `💰 ${accounts.length} accounts, Total: $${total.toLocaleString()}`
-        }]
-      };
+  } catch (error) {
+    // Log error details for debugging HTTP transport issues
+    console.error('[monarchmoney-mcp] Server initialization failed:', error);
+    if (error instanceof Error) {
+      console.error('[monarchmoney-mcp] Error stack:', error.stack);
     }
-
-    if (verbosity === "light") {
-      const summary = accounts.map((acc: any) => ({
-        name: acc.displayName,
-        balance: acc.currentBalance,
-        type: acc.type?.display
-      }));
-
-      return {
-        content: [{
-          type: "text",
-          text: `📊 **Account Summary**\n\n${summary.map((a: any) => `• ${a.name}: $${a.balance?.toLocaleString() || '0'} (${a.type})`).join('\n')}`
-        }]
-      };
-    }
-
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(accounts, null, 2)
-      }]
-    };
+    throw new Error(`Server initialization error: ${error instanceof Error ? error.message : String(error)}`);
   }
-
-  async run(): Promise<void> {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('MonarchMoney MCP server running on stdio');
-  }
-
-  getServer(): Server {
-    return this.server;
-  }
-}
-
-// Traditional MCP server run (for local usage)
-if (require.main === module) {
-  const server = new MonarchMcpServer();
-  server.run().catch(console.error);
-}
-
-// Smithery-compliant export
-export default function createServer({ config }: { config?: z.infer<typeof configSchema> }) {
-  const serverInstance = new MonarchMcpServer(config);
-  return serverInstance.getServer();
 }

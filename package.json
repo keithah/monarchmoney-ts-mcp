@@ -1,20 +1,28 @@
 {
   "name": "monarchmoney-ts-mcp",
-  "version": "0.4.0",
-  "description": "Model Context Protocol (MCP) server for MonarchMoney SDK",
-  "main": "dist/index.js",
-  "module": "src/index.ts",
+  "version": "1.1.0",
+  "description": "MCP server for MonarchMoney API financial data queries with AI optimization",
+  "type": "module",
+  "module": "./src/createServer.ts",
   "bin": {
-    "monarchmoney-mcp": "dist/index.js"
+    "monarchmoney-mcp": "./.smithery/index.cjs"
   },
+  "files": [
+    ".smithery"
+  ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "start": "node dist/index.js",
+    "build": "npm run build:stdio",
+    "build:stdio": "npx @smithery/cli build src/createServer.ts --transport stdio && echo '#!/usr/bin/env node' | cat - .smithery/index.cjs > temp && mv temp .smithery/index.cjs && chmod +x .smithery/index.cjs",
+    "build:shttp": "npx @smithery/cli build src/createServer.ts --transport shttp",
+    "build:all": "npm run build:stdio && npm run build:shttp",
+    "prepare": "npm run build:stdio",
+    "dev": "npx @smithery/cli dev",
     "test": "jest --passWithNoTests",
+    "test:coverage": "jest src/__tests__ --coverage --testPathIgnorePatterns=integration",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
-    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist coverage .smithery",
     "bundle": "npm run build && node scripts/create-mcpb.js",
     "release": "npm run bundle"
   },
@@ -38,6 +46,7 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@smithery/cli": "^1.4.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
