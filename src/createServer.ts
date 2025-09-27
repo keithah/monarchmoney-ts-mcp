@@ -11,8 +11,6 @@ export const configSchema = z.object({
   mfaSecret: z.string().optional().describe("Optional MFA/TOTP secret for two-factor authentication"),
 });
 
-// Export stateless flag for MCP
-export const stateless = true;
 
 /**
  * MonarchMoney MCP Server
@@ -22,7 +20,11 @@ export const stateless = true;
  * and AI-optimized responses with 99% size reduction for context efficiency.
  */
 
-export default function createServer({ config }: { config: z.infer<typeof configSchema> }) {
+export default function createServer({
+  config
+}: {
+  config: z.infer<typeof configSchema>
+}) {
     // Create MCP server
     const server = new McpServer({
       name: "monarchmoney-mcp",
