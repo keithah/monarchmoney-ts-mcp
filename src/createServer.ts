@@ -30,21 +30,25 @@ export default function createServer({ config }: { config: z.infer<typeof config
       version: "1.1.0"
     });
 
-    // Initialize MonarchMoney client
+    // Initialize MonarchMoney client lazily
     const email = config.email;
     const password = config.password;
     const mfaSecret = config.mfaSecret;
 
-    // Create MonarchMoney client with provided credentials
-    const monarchClient = new MonarchClient({
-      baseURL: 'https://api.monarchmoney.com',
-      timeout: 30000,
-    });
+    let monarchClient: any = null;
     let isAuthenticated = false;
 
     // Helper function to ensure authentication
     const ensureAuthenticated = async () => {
       if (isAuthenticated) return;
+
+      // Create client only when needed
+      if (!monarchClient) {
+        monarchClient = new MonarchClient({
+          baseURL: 'https://api.monarchmoney.com',
+          timeout: 30000,
+        });
+      }
 
       try {
         await monarchClient.login({
