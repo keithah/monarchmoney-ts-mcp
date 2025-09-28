@@ -18,7 +18,7 @@
     "prepare": "npm run build:stdio",
     "dev": "smithery dev",
     "test": "jest --passWithNoTests",
-    "test:coverage": "jest src/__tests__ --coverage --testPathIgnorePatterns=integration",
+    "test:coverage": "jest tests --coverage --testPathIgnorePatterns=integration",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
     "type-check": "tsc --noEmit",
