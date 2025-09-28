@@ -26,14 +26,14 @@ fs.mkdirSync(bundleDir, { recursive: true });
 console.log('📦 Copying required files...');
 
 // Copy built JavaScript files
-if (!fs.existsSync(path.join(__dirname, '..', 'dist'))) {
+if (!fs.existsSync(path.join(__dirname, '..', '.smithery', 'stdio', 'index.cjs'))) {
   console.error('❌ Build files not found. Please run "npm run build" first.');
   process.exit(1);
 }
 
 // Copy main files to bundle
 const filesToCopy = [
-  'dist/index.js',
+  '.smithery/stdio/index.cjs',
   'package.json',
   'bundle.json',
   'README.md',
@@ -43,11 +43,18 @@ const filesToCopy = [
 
 filesToCopy.forEach(file => {
   const sourcePath = path.join(__dirname, '..', file);
-  const destPath = path.join(bundleDir, path.basename(file));
+  let destName = path.basename(file);
+
+  // Rename index.cjs to index.js for the bundle
+  if (file === '.smithery/stdio/index.cjs') {
+    destName = 'index.js';
+  }
+
+  const destPath = path.join(bundleDir, destName);
 
   if (fs.existsSync(sourcePath)) {
     fs.copyFileSync(sourcePath, destPath);
-    console.log(`✅ Copied ${file}`);
+    console.log(`✅ Copied ${file} -> ${destName}`);
   } else {
     console.warn(`⚠️  File not found: ${file}`);
   }

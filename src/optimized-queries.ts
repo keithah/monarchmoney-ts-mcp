@@ -233,7 +233,6 @@ export function calculateOptimalVerbosity(
   const estimates = RESPONSE_SIZE_ESTIMATES;
 
   // Calculate estimated sizes for each verbosity level
-  const ultraLightSize = estimates['ultra-light'][dataType] * itemCount;
   const lightSize = estimates['light'][dataType] * itemCount;
   const standardSize = estimates['standard'][dataType] * itemCount;
 
@@ -252,9 +251,10 @@ export class OptimizedResponseFormatter {
    */
   static formatAccounts(accounts: any[], verbosity: VerbosityLevel): string {
     switch (verbosity) {
-      case 'ultra-light':
+      case 'ultra-light': {
         const total = accounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
         return `💰 ${accounts.length} accounts, Total: $${total.toLocaleString()}`;
+      }
 
       case 'light':
         return accounts.map(acc => {
@@ -289,9 +289,10 @@ export class OptimizedResponseFormatter {
     const header = originalQuery ? `🧠 **Smart Query**: "${originalQuery}"\n\n` : '';
 
     switch (verbosity) {
-      case 'ultra-light':
+      case 'ultra-light': {
         const total = transactions.reduce((sum, txn) => sum + Math.abs(txn.amount), 0);
         return `${header}💳 ${transactions.length} transactions, Volume: $${total.toLocaleString()}`;
+      }
 
       case 'light':
         return header + transactions.map(txn => {
@@ -331,7 +332,6 @@ export class OptimizedResponseFormatter {
       .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
 
     const accountCount = accounts.length;
-    const transactionCount = recentTransactions?.length || 0;
 
     // Calculate month-over-month change (simplified)
     const thisMonth = recentTransactions?.filter(t => {

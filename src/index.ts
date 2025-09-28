@@ -15,19 +15,13 @@ config();
 
 // Globally redirect ALL console output to stderr to prevent JSON-RPC protocol issues
 // This must be done before importing MonarchClient
-const originalConsole = {
-  log: console.log,
-  info: console.info,
-  warn: console.warn,
-  debug: console.debug
-};
 
 console.log = (...args: any[]) => console.error(...args);
 console.info = (...args: any[]) => console.error(...args);
 console.warn = (...args: any[]) => console.error(...args);
 console.debug = (...args: any[]) => console.error(...args);
 
-const { MonarchClient } = require('monarchmoney');
+import { MonarchClient } from 'monarchmoney';
 
 // Keep console redirected for the entire lifecycle to prevent any stdout pollution
 // Don't restore console methods
@@ -496,7 +490,7 @@ class MonarchMcpServer {
       `${cat} $${amt.toFixed(0)}`).join(', ')} | Total: $${totalSpending.toFixed(0)}`;
   }
 
-  private async getBalanceTrends(args: any): Promise<string> {
+  private async getBalanceTrends(_args: any): Promise<string> {
     console.error('📈 Getting balance trends...');
 
     const accounts = await this.monarchClient.accounts.getAll();
@@ -512,7 +506,7 @@ class MonarchMcpServer {
     return `📊 Assets: $${assets.toLocaleString()} | Liabilities: $${liabilities.toLocaleString()} | Net Worth: $${totalBalance.toLocaleString()}`;
   }
 
-  private async getBudgetVarianceSummary(args: any): Promise<string> {
+  private async getBudgetVarianceSummary(_args: any): Promise<string> {
     console.error('💰 Getting budget variance...');
 
     try {
@@ -540,7 +534,7 @@ class MonarchMcpServer {
     }
   }
 
-  private async getQuickStats(args: any): Promise<string> {
+  private async getQuickStats(_args: any): Promise<string> {
     console.error('⚡ Getting quick stats...');
 
     const [accounts, transactions] = await Promise.all([
@@ -681,7 +675,7 @@ class MonarchMcpServer {
   }
 
   private formatTransactions(transactions: any[], originalArgs?: any): string {
-    let processedTransactions = [...transactions];
+    const processedTransactions = [...transactions];
     const verbosity = originalArgs?.verbosity || 'summary';
 
     // Apply post-processing sorting if requested
@@ -844,7 +838,7 @@ Updated: ${account.displayLastUpdatedAt ? new Date(account.displayLastUpdatedAt)
     return relevant;
   }
 
-  private parseNaturalLanguageQuery(query: string, existingArgs: any): any {
+  private parseNaturalLanguageQuery(query: string, _existingArgs: any): any {
     const enhancedArgs: any = {};
     const lowerQuery = query.toLowerCase();
 
@@ -1023,7 +1017,7 @@ Updated: ${account.displayLastUpdatedAt ? new Date(account.displayLastUpdatedAt)
     }
 
     try {
-      const config = ConfigSchema.parse(process.env);
+      ConfigSchema.parse(process.env);
     } catch (configError) {
       throw new McpError(
         ErrorCode.InvalidRequest,
