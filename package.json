@@ -23,7 +23,7 @@
     "format": "prettier --write src/**/*.ts",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist coverage .smithery",
-    "bundle": "npm run build && node scripts/create-mcpb.js",
+    "bundle": "npm run build && node scripts/create-mcpb.cjs",
     "release": "npm run bundle"
   },
   "keywords": [
