@@ -6,11 +6,9 @@ const { MonarchClient } = require('monarchmoney');
 
 // Configuration schema - automatically detected by Smithery
 export const configSchema = z.object({
-  email: z.string().email().optional().describe("MonarchMoney email address for login"),
-  password: z.string().optional().describe("MonarchMoney password"),
+  email: z.string().email().describe("MonarchMoney email address for login"),
+  password: z.string().describe("MonarchMoney password"),
   mfaSecret: z.string().optional().describe("Optional MFA/TOTP secret for two-factor authentication"),
-  modelName: z.string().default("gpt-4").describe("Model to use"),
-  temperature: z.number().min(0).max(1).default(0.7).describe("Temperature setting"),
 });
 
 
@@ -34,8 +32,6 @@ export default function createServer({
       version: "1.1.0"
     });
 
-    // Use config values in your tools (like Tessie does)
-    console.log(`Using model: ${config.modelName}`);
 
     // Initialize MonarchMoney client
     const email = config.email;
