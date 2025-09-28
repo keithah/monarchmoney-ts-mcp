@@ -1,6 +1,6 @@
 {
   "name": "monarchmoney-ts-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MCP server for MonarchMoney API financial data queries with AI optimization",
   "type": "module",
   "module": "./src/createServer.ts",

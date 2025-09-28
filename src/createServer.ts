@@ -29,7 +29,7 @@ export default function createServer({
     const server = new McpServer({
       name: "monarchmoney-mcp",
       title: "MonarchMoney Financial Data",
-      version: "1.1.0"
+      version: "1.1.1"
     });
 
 
