@@ -82,32 +82,43 @@ export default function createServer({
 
         const accounts = await monarchClient.accounts.getAll();
 
+        let responseText: string;
+
         if (verbosity === "ultra-light") {
           const total = accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0);
-          return `💰 ${accounts.length} accounts, Total: $${total.toLocaleString()}`;
-        }
-
-        if (verbosity === "light") {
+          responseText = `💰 ${accounts.length} accounts, Total: $${total.toLocaleString()}`;
+        } else if (verbosity === "light") {
           const summary = accounts.map((acc: any) => ({
             name: acc.displayName,
             balance: acc.currentBalance,
             type: acc.type?.display
           }));
 
-          return {
+          const result = {
             total_accounts: accounts.length,
             total_balance: accounts.reduce((sum: number, acc: any) => sum + (acc.currentBalance || 0), 0),
-            accounts: summary.map(a => ({
+            accounts: summary.map((a: any) => ({
               name: a.name,
               balance: a.balance,
               type: a.type
             }))
           };
+          responseText = JSON.stringify(result, null, 2);
+        } else {
+          const result = {
+            total_accounts: accounts.length,
+            accounts: accounts
+          };
+          responseText = JSON.stringify(result, null, 2);
         }
 
         return {
-          total_accounts: accounts.length,
-          accounts: accounts
+          content: [
+            {
+              type: "text",
+              text: responseText
+            }
+          ]
         };
       }
     );
@@ -133,13 +144,13 @@ export default function createServer({
         const result = await monarchClient.transactions.getTransactions(args);
         const transactions = result.transactions || [];
 
+        let responseText: string;
+
         if (verbosity === "ultra-light") {
           const totalAmount = transactions.reduce((sum: number, txn: any) => sum + Math.abs(txn.amount || 0), 0);
-          return `💳 ${transactions.length} transactions, Total: $${totalAmount.toLocaleString()}`;
-        }
-
-        if (verbosity === "light") {
-          return {
+          responseText = `💳 ${transactions.length} transactions, Total: $${totalAmount.toLocaleString()}`;
+        } else if (verbosity === "light") {
+          const result = {
             total_transactions: transactions.length,
             transactions: transactions.slice(0, 10).map((txn: any) => ({
               date: txn.date,
@@ -148,11 +159,22 @@ export default function createServer({
               category: txn.category?.name
             }))
           };
+          responseText = JSON.stringify(result, null, 2);
+        } else {
+          const result = {
+            total_transactions: transactions.length,
+            transactions: transactions
+          };
+          responseText = JSON.stringify(result, null, 2);
         }
 
         return {
-          total_transactions: transactions.length,
-          transactions: transactions
+          content: [
+            {
+              type: "text",
+              text: responseText
+            }
+          ]
         };
       }
     );
@@ -171,20 +193,32 @@ export default function createServer({
         try {
           const budgets = await monarchClient.budgets.getBudgets();
 
+          let responseText: string;
+
           if (verbosity === "ultra-light") {
             const totalBudgeted = budgets.reduce((sum: number, b: any) => sum + (b.budgeted || 0), 0);
             const totalSpent = budgets.reduce((sum: number, b: any) => sum + (b.actual || 0), 0);
-            return `💰 ${budgets.length} budgets, $${totalSpent.toLocaleString()}/$${totalBudgeted.toLocaleString()} spent`;
+            responseText = `💰 ${budgets.length} budgets, $${totalSpent.toLocaleString()}/$${totalBudgeted.toLocaleString()} spent`;
+          } else {
+            const result = {
+              total_budgets: budgets.length,
+              budgets: budgets.map((budget: any) => ({
+                category: budget.category?.name || budget.name,
+                budgeted: budget.budgeted || 0,
+                spent: budget.actual || budget.spent || 0,
+                remaining: (budget.budgeted || 0) - (budget.actual || budget.spent || 0)
+              }))
+            };
+            responseText = JSON.stringify(result, null, 2);
           }
 
           return {
-            total_budgets: budgets.length,
-            budgets: budgets.map((budget: any) => ({
-              category: budget.category?.name || budget.name,
-              budgeted: budget.budgeted || 0,
-              spent: budget.actual || budget.spent || 0,
-              remaining: (budget.budgeted || 0) - (budget.actual || budget.spent || 0)
-            }))
+            content: [
+              {
+                type: "text",
+                text: responseText
+              }
+            ]
           };
         } catch (error) {
           throw new Error(`Failed to get budgets: ${error}`);
