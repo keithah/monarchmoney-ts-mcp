@@ -53,8 +53,8 @@ jobs:
 
     - name: Verify build outputs
       run: |
-        ls -la dist/
-        test -f dist/index.js
+        ls -la .smithery/
+        test -f .smithery/stdio/index.cjs
 
   optimization-tests:
     name: Optimization & Performance Tests
@@ -78,21 +78,20 @@ jobs:
       run: npm run build
 
     - name: Test optimization features
-      run: node -e "
-        console.log('🧪 Testing MCP optimization features...');
+      run: |
+        echo '🧪 Testing MCP optimization features...'
 
-        // Test that tests are comprehensive
-        const testFiles = require('fs').readdirSync('./tests');
-        console.log(\`📊 Found \${testFiles.length} test files\`);
+        # Test that tests are comprehensive
+        TEST_COUNT=$(find ./tests -name "*.test.*" -type f | wc -l)
+        echo "📊 Found $TEST_COUNT test files"
 
-        // Verify test coverage
-        if (testFiles.length < 3) {
-          console.error('❌ Insufficient test coverage');
-          process.exit(1);
-        }
+        # Verify test coverage
+        if [ "$TEST_COUNT" -lt 3 ]; then
+          echo "❌ Insufficient test coverage"
+          exit 1
+        fi
 
-        console.log('✅ MCP optimization tests validated');
-      "
+        echo "✅ MCP optimization tests validated"
 
     - name: Test MCP bundle creation
       run: |
@@ -134,7 +133,7 @@ jobs:
       run: |
         if [ -n "$MONARCH_EMAIL" ]; then
           echo "🧪 Running MCP server integration tests..."
-          timeout 30s node dist/index.js || echo "✅ MCP server started successfully (timeout expected)"
+          timeout 30s node .smithery/stdio/index.cjs || echo "✅ MCP server started successfully (timeout expected)"
         else
           echo "⚠️ Integration tests skipped - no credentials provided"
           echo "To run integration tests, set MONARCH_EMAIL, MONARCH_PASSWORD, and MONARCH_MFA_SECRET secrets"
