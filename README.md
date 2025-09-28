@@ -2,6 +2,7 @@
 
 [![npm version](https://badge.fury.io/js/monarchmoney.svg)](https://badge.fury.io/js/monarchmoney)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![smithery badge](https://smithery.ai/badge/@keithah/monarchmoney-ts-mcp)](https://smithery.ai/server/@keithah/monarchmoney-ts-mcp)
 
 A powerful **Model Context Protocol (MCP) server** that provides AI assistants with seamless access to MonarchMoney personal finance data. This server dynamically discovers and exposes **ALL** available methods from the [MonarchMoney TypeScript SDK](https://github.com/keithah/monarchmoney-ts), enabling comprehensive financial data analysis through natural language queries.
 
@@ -38,6 +39,14 @@ A powerful **Model Context Protocol (MCP) server** that provides AI assistants w
 - **Professional query examples** and documentation
 
 ## 📦 **Quick Install**
+
+### Installing via Smithery
+
+To install monarchmoney-ts-mcp automatically via [Smithery](https://smithery.ai/server/@keithah/monarchmoney-ts-mcp):
+
+```bash
+npx -y @smithery/cli install @keithah/monarchmoney-ts-mcp
+```
 
 ### Option 1: One-Click MCPB Bundle (Recommended)
 
