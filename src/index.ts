@@ -57,7 +57,7 @@ class MonarchMcpServer {
     );
 
     this.monarchClient = new MonarchClient({
-      baseURL: 'https://api.monarchmoney.com',
+      baseURL: 'https://api.monarch.com',
       timeout: 30000,
     });
 
