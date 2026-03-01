@@ -2,6 +2,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 const { MonarchClient } = require('monarchmoney');
 
 // Configuration schema - automatically detected by Smithery
@@ -52,7 +54,7 @@ export default function createServer({
 
       if (!monarchClient) {
         monarchClient = new MonarchClient({
-          baseURL: 'https://api.monarchmoney.com',
+          baseURL: 'https://api.monarch.com',
           timeout: 30000,
         });
       }
