@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/keithah-monarchmoney-ts-mcp-badge.png)](https://mseep.ai/app/keithah-monarchmoney-ts-mcp)
+
 # MonarchMoney MCP Server
 
 [![npm version](https://badge.fury.io/js/monarchmoney.svg)](https://badge.fury.io/js/monarchmoney)
