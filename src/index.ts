@@ -27,16 +27,22 @@ console.info = (...args: any[]) => console.error(...args);
 console.warn = (...args: any[]) => console.error(...args);
 console.debug = (...args: any[]) => console.error(...args);
 
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 const { MonarchClient } = require('monarchmoney');
 
 // Keep console redirected for the entire lifecycle to prevent any stdout pollution
 // Don't restore console methods
 
 const ConfigSchema = z.object({
-  MONARCH_EMAIL: z.string().email(),
-  MONARCH_PASSWORD: z.string().min(1),
+  MONARCH_EMAIL: z.string().email().optional(),
+  MONARCH_PASSWORD: z.string().min(1).optional(),
   MONARCH_MFA_SECRET: z.string().optional(),
-});
+  MONARCH_TOKEN: z.string().optional(),
+}).refine(
+  data => data.MONARCH_TOKEN || (data.MONARCH_EMAIL && data.MONARCH_PASSWORD),
+  { message: 'Either MONARCH_TOKEN or both MONARCH_EMAIL and MONARCH_PASSWORD are required' }
+);
 
 class MonarchMcpServer {
   private server: Server;
@@ -57,7 +63,7 @@ class MonarchMcpServer {
     );
 
     this.monarchClient = new MonarchClient({
-      baseURL: 'https://api.monarchmoney.com',
+      baseURL: 'https://api.monarch.com',
       timeout: 30000,
     });
 
@@ -255,10 +261,12 @@ class MonarchMcpServer {
       'transactions_updateTransaction': 'Update transaction details',
       'transactions_deleteTransaction': 'Delete a transaction',
       'transactions_getTransactionsSummary': 'Get transactions summary',
-      'transactions_getTransactionRules': 'Get transaction rules',
-      'transactions_createTransactionRule': 'Create transaction rule',
-      'transactions_updateTransactionRule': 'Update transaction rule',
-      'transactions_deleteTransactionRule': 'Delete transaction rule',
+      'transactions_getTransactionRules': 'Get all transaction rules with criteria and actions',
+      'transactions_createTransactionRule': 'Create a new transaction rule with match criteria and actions',
+      'transactions_updateTransactionRule': 'Update an existing transaction rule by ID',
+      'transactions_deleteTransactionRule': 'Delete a transaction rule by ID',
+      'transactions_updateTransactionRuleOrder': 'Change the priority order of a transaction rule',
+      'transactions_deleteAllTransactionRules': 'Delete ALL transaction rules (use with extreme caution)',
       
       // Budgets
       'budgets_getBudgets': 'Get budget information',
@@ -301,6 +309,70 @@ class MonarchMcpServer {
   }
 
   private generateInputSchema(moduleName: string, methodName: string): any {
+    // Transaction rule CRUD schemas
+    if (methodName === 'createTransactionRule') {
+      return {
+        type: 'object',
+        properties: {
+          merchantCriteria: { type: 'array', items: { type: 'object', properties: { operator: { type: 'string', enum: ['eq', 'contains'] }, value: { type: 'string' } }, required: ['operator', 'value'] }, description: 'Match merchant name criteria' },
+          amountCriteria: { type: 'object', properties: { isExpense: { type: 'boolean' }, operator: { type: 'string', enum: ['gt', 'lt', 'eq', 'between'] }, value: { type: 'number' }, valueRange: { type: 'object', properties: { lower: { type: 'number' }, upper: { type: 'number' } } } }, description: 'Match amount criteria' },
+          categoryIds: { type: 'array', items: { type: 'string' }, description: 'Match category IDs' },
+          accountIds: { type: 'array', items: { type: 'string' }, description: 'Match account IDs' },
+          setCategoryAction: { type: 'string', description: 'Category ID to set on matching transactions' },
+          setMerchantAction: { type: 'string', description: 'Merchant name to set on matching transactions' },
+          addTagsAction: { type: 'array', items: { type: 'string' }, description: 'Tag IDs to add to matching transactions' },
+          sendNotificationAction: { type: 'boolean', description: 'Send notification when rule applies' },
+          setHideFromReportsAction: { type: 'boolean', description: 'Hide matching transactions from reports' },
+          reviewStatusAction: { type: 'string', enum: ['reviewed', 'needs_review'], description: 'Set review status on matching transactions' },
+          applyToExistingTransactions: { type: 'boolean', description: 'Apply rule to existing transactions' },
+        },
+      };
+    }
+    if (methodName === 'updateTransactionRule') {
+      return {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'ID of the rule to update' },
+          merchantCriteria: { type: 'array', items: { type: 'object', properties: { operator: { type: 'string', enum: ['eq', 'contains'] }, value: { type: 'string' } }, required: ['operator', 'value'] }, description: 'Match merchant name criteria' },
+          amountCriteria: { type: 'object', properties: { isExpense: { type: 'boolean' }, operator: { type: 'string', enum: ['gt', 'lt', 'eq', 'between'] }, value: { type: 'number' } }, description: 'Match amount criteria' },
+          categoryIds: { type: 'array', items: { type: 'string' }, description: 'Match category IDs' },
+          accountIds: { type: 'array', items: { type: 'string' }, description: 'Match account IDs' },
+          setCategoryAction: { type: 'string', description: 'Category ID to set' },
+          setMerchantAction: { type: 'string', description: 'Merchant name to set' },
+          addTagsAction: { type: 'array', items: { type: 'string' }, description: 'Tag IDs to add' },
+          sendNotificationAction: { type: 'boolean', description: 'Send notification when rule applies' },
+          setHideFromReportsAction: { type: 'boolean', description: 'Hide from reports' },
+          reviewStatusAction: { type: 'string', enum: ['reviewed', 'needs_review'], description: 'Set review status' },
+        },
+        required: ['id'],
+      };
+    }
+    if (methodName === 'deleteTransactionRule') {
+      return {
+        type: 'object',
+        properties: {
+          ruleId: { type: 'string', description: 'ID of the rule to delete' },
+        },
+        required: ['ruleId'],
+      };
+    }
+    if (methodName === 'updateTransactionRuleOrder') {
+      return {
+        type: 'object',
+        properties: {
+          ruleId: { type: 'string', description: 'ID of the rule to reorder' },
+          order: { type: 'number', description: 'New position (0-based index)' },
+        },
+        required: ['ruleId', 'order'],
+      };
+    }
+    if (methodName === 'deleteAllTransactionRules') {
+      return { type: 'object', properties: {} };
+    }
+    if (methodName === 'getTransactionRules') {
+      return { type: 'object', properties: {} };
+    }
+
     // Common schema patterns based on method names
     if (methodName.includes('getById') || methodName.includes('ById')) {
       return {
@@ -579,6 +651,12 @@ class MonarchMcpServer {
     }
 
     // Handle primitives
+    if (typeof result === 'boolean') {
+      if (toolName.includes('delete') || toolName.includes('Delete')) {
+        return result ? 'Successfully deleted.' : 'Delete operation completed.';
+      }
+      return result ? 'Operation succeeded.' : 'Operation returned false.';
+    }
     return String(result);
   }
 
@@ -591,7 +669,9 @@ class MonarchMcpServer {
     const verbosity = originalArgs?.verbosity || 'summary';
 
     // Format based on data type
-    if (toolName.includes('accounts')) {
+    if (toolName.includes('TransactionRule') || toolName.includes('transactionRule')) {
+      return this.formatTransactionRules(data);
+    } else if (toolName.includes('accounts')) {
       return this.formatAccounts(data, verbosity);
     } else if (toolName.includes('transactions') || toolName === 'transactions_smartQuery') {
       // For smart queries, use the stored smart query args
@@ -621,6 +701,11 @@ class MonarchMcpServer {
   }
 
   private formatObjectResult(toolName: string, data: any): string {
+    // Handle transaction rule objects (single rule from create/update)
+    if (toolName.includes('TransactionRule') || toolName.includes('transactionRule')) {
+      return this.formatTransactionRules([data]);
+    }
+
     // Handle specific object types
     if (data.totalIncome !== undefined || data.totalExpenses !== undefined) {
       return this.formatSummary(data);
@@ -635,6 +720,56 @@ class MonarchMcpServer {
     return Object.entries(relevantFields)
       .map(([key, value]) => `${key}: ${value}`)
       .join('\n');
+  }
+
+  private formatTransactionRules(rules: any[]): string {
+    const header = `📋 **Transaction Rules** (${rules.length} rules)\n\n`;
+    const formatted = rules.map((rule, i) => {
+      const parts: string[] = [];
+      parts.push(`**Rule ${i + 1}** (ID: ${rule.id}, order: ${rule.order ?? '?'})`);
+
+      // Criteria
+      const criteria: string[] = [];
+      if (rule.merchantCriteria?.length) {
+        criteria.push(`Merchant ${rule.merchantCriteria.map((c: any) => `${c.operator} "${c.value}"`).join(' OR ')}`);
+      }
+      if (rule.amountCriteria) {
+        const ac = rule.amountCriteria;
+        const type = ac.isExpense ? 'expense' : 'income';
+        if (ac.operator === 'between' && ac.valueRange) {
+          criteria.push(`Amount (${type}): $${ac.valueRange.lower}-$${ac.valueRange.upper}`);
+        } else {
+          criteria.push(`Amount (${type}): ${ac.operator} $${ac.value}`);
+        }
+      }
+      if (rule.categories?.length) {
+        criteria.push(`Categories: ${rule.categories.map((c: any) => c.name).join(', ')}`);
+      }
+      if (rule.accounts?.length) {
+        criteria.push(`Accounts: ${rule.accounts.map((a: any) => a.displayName).join(', ')}`);
+      }
+      if (criteria.length) {
+        parts.push(`  Match: ${criteria.join(' AND ')}`);
+      }
+
+      // Actions
+      const actions: string[] = [];
+      if (rule.setCategoryAction) actions.push(`Set category → ${rule.setCategoryAction.name}`);
+      if (rule.setMerchantAction) actions.push(`Set merchant → ${rule.setMerchantAction.name}`);
+      if (rule.addTagsAction?.length) actions.push(`Add tags → ${rule.addTagsAction.map((t: any) => t.name).join(', ')}`);
+      if (rule.reviewStatusAction) actions.push(`Review status → ${rule.reviewStatusAction}`);
+      if (rule.sendNotificationAction) actions.push('Send notification');
+      if (rule.setHideFromReportsAction) actions.push('Hide from reports');
+      if (rule.linkGoalAction) actions.push(`Link goal → ${rule.linkGoalAction.name}`);
+      if (rule.needsReviewByUserAction) actions.push(`Needs review by → ${rule.needsReviewByUserAction.displayName}`);
+      if (actions.length) {
+        parts.push(`  Actions: ${actions.join(', ')}`);
+      }
+
+      return parts.join('\n');
+    }).join('\n\n');
+
+    return header + formatted;
   }
 
   private formatAccounts(accounts: any[], verbosity: string = 'summary'): string {
@@ -939,6 +1074,8 @@ Updated: ${account.displayLastUpdatedAt ? new Date(account.displayLastUpdatedAt)
       'accounts_getTypeOptions',
       'transactions_getTransactionsSummary',
       'transactions_getTransactionsSummaryCard',
+      'transactions_getTransactionRules',
+      'transactions_deleteAllTransactionRules',
       'budgets_getBudgets',
       'categories_getCategories',
       'cashflow_getCashflowSummary',
@@ -999,6 +1136,20 @@ Updated: ${account.displayLastUpdatedAt ? new Date(account.displayLastUpdatedAt)
       return [transactionArgs];
     }
 
+    // Transaction rule CRUD methods
+    if (toolName === 'transactions_createTransactionRule') {
+      return [args];
+    }
+    if (toolName === 'transactions_updateTransactionRule') {
+      return [args];
+    }
+    if (toolName === 'transactions_deleteTransactionRule') {
+      return [args.ruleId];
+    }
+    if (toolName === 'transactions_updateTransactionRuleOrder') {
+      return [args.ruleId, args.order];
+    }
+
     // Create/update methods that expect data object
     if (toolName.includes('create') || toolName.includes('update')) {
       return [args.data];
@@ -1027,23 +1178,30 @@ Updated: ${account.displayLastUpdatedAt ? new Date(account.displayLastUpdatedAt)
     } catch (configError) {
       throw new McpError(
         ErrorCode.InvalidRequest,
-        `❌ Configuration Error: Please configure your MonarchMoney credentials in Claude Desktop extension settings. Missing or invalid: ${configError instanceof Error ? configError.message : String(configError)}`
+        `Configuration Error: Please set MONARCH_TOKEN or both MONARCH_EMAIL and MONARCH_PASSWORD. ${configError instanceof Error ? configError.message : String(configError)}`
       );
     }
 
     try {
       const config = ConfigSchema.parse(process.env);
 
-      console.error(`🔐 Attempting authentication for: ${config.MONARCH_EMAIL}`);
-
-      await this.monarchClient.login({
-        email: config.MONARCH_EMAIL,
-        password: config.MONARCH_PASSWORD,
-        mfaSecretKey: config.MONARCH_MFA_SECRET,
-      });
-
-      this.isAuthenticated = true;
-      console.error(`✅ Successfully authenticated: ${config.MONARCH_EMAIL}`);
+      if (config.MONARCH_TOKEN) {
+        // Token-based auth — use pre-existing session token directly
+        console.error('Using token-based authentication');
+        this.monarchClient.setToken(config.MONARCH_TOKEN);
+        this.isAuthenticated = true;
+        console.error('Token authentication configured');
+      } else {
+        // Email/password login
+        console.error(`Attempting login for: ${config.MONARCH_EMAIL}`);
+        await this.monarchClient.login({
+          email: config.MONARCH_EMAIL,
+          password: config.MONARCH_PASSWORD,
+          mfaSecretKey: config.MONARCH_MFA_SECRET,
+        });
+        this.isAuthenticated = true;
+        console.error(`Login successful: ${config.MONARCH_EMAIL}`);
+      }
     } catch (error: any) {
       // Enhanced error messages based on MonarchMoney API responses
       let userFriendlyMessage = '';
