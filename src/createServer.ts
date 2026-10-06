@@ -52,7 +52,7 @@ export default function createServer({
 
       if (!monarchClient) {
         monarchClient = new MonarchClient({
-          baseURL: 'https://api.monarchmoney.com',
+          baseURL: 'https://api.monarch.com',
           timeout: 30000,
         });
       }
@@ -191,23 +191,59 @@ export default function createServer({
         await ensureAuthenticated();
 
         try {
-          const budgets = await monarchClient.budgets.getBudgets();
+          const data = await monarchClient.budgets.getBudgets();
+
+          // Build a category ID -> name lookup from categoryGroups
+          const categoryMap: Record<string, string> = {};
+          const categoryGroups = data.categoryGroups || [];
+          for (const group of categoryGroups) {
+            for (const cat of (group.categories || [])) {
+              categoryMap[cat.id] = cat.name;
+            }
+          }
+
+          // Extract per-category budget data from budgetData.monthlyAmountsByCategory
+          const budgetData = data.budgetData || {};
+          const monthlyByCategory = budgetData.monthlyAmountsByCategory || [];
+
+          const budgets = monthlyByCategory.map((entry: any) => {
+            const categoryId = entry.category?.id;
+            const categoryName = categoryMap[categoryId] || `Category ${categoryId}`;
+            // Use the first month's data (current month)
+            const monthly = entry.monthlyAmounts?.[0] || {};
+            return {
+              category: categoryName,
+              budgeted: monthly.plannedCashFlowAmount || 0,
+              spent: monthly.actualAmount || 0,
+              remaining: monthly.remainingAmount || 0,
+            };
+          });
+
+          // Filter out categories with no budget and no spending
+          const activeBudgets = budgets.filter((b: any) => b.budgeted !== 0 || b.spent !== 0);
 
           let responseText: string;
 
           if (verbosity === "ultra-light") {
-            const totalBudgeted = budgets.reduce((sum: number, b: any) => sum + (b.budgeted || 0), 0);
-            const totalSpent = budgets.reduce((sum: number, b: any) => sum + (b.actual || 0), 0);
-            responseText = `💰 ${budgets.length} budgets, $${totalSpent.toLocaleString()}/$${totalBudgeted.toLocaleString()} spent`;
+            const totalBudgeted = activeBudgets.reduce((sum: number, b: any) => sum + (b.budgeted || 0), 0);
+            const totalSpent = activeBudgets.reduce((sum: number, b: any) => sum + Math.abs(b.spent || 0), 0);
+            responseText = `💰 ${activeBudgets.length} budgets, $${totalSpent.toLocaleString()}/$${totalBudgeted.toLocaleString()} spent`;
           } else {
+            // Include totals from totalsByMonth if available
+            const totals = budgetData.totalsByMonth?.[0] || {};
             const result = {
-              total_budgets: budgets.length,
-              budgets: budgets.map((budget: any) => ({
-                category: budget.category?.name || budget.name,
-                budgeted: budget.budgeted || 0,
-                spent: budget.actual || budget.spent || 0,
-                remaining: (budget.budgeted || 0) - (budget.actual || budget.spent || 0)
-              }))
+              total_budgets: activeBudgets.length,
+              summary: {
+                totalIncome: {
+                  planned: totals.totalIncome?.plannedAmount || 0,
+                  actual: totals.totalIncome?.actualAmount || 0,
+                },
+                totalExpenses: {
+                  planned: totals.totalExpenses?.plannedAmount || 0,
+                  actual: totals.totalExpenses?.actualAmount || 0,
+                },
+              },
+              budgets: activeBudgets,
             };
             responseText = JSON.stringify(result, null, 2);
           }

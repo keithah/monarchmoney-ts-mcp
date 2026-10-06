@@ -6,7 +6,7 @@ async function testAuth() {
   
   // Create client
   const client = new MonarchClient({
-    baseURL: 'https://api.monarchmoney.com',
+    baseURL: 'https://api.monarch.com',
     timeout: 30000,
   });
   
