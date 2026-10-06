@@ -2,7 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-const { MonarchClient } = require('monarchmoney');
+import { MonarchClient } from 'monarchmoney';
 
 // Configuration schema - automatically detected by Smithery
 export const configSchema = z.object({
