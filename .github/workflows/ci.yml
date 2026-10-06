@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     name: Test Suite
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     strategy:
       matrix:
@@ -58,7 +58,7 @@ jobs:
 
   optimization-tests:
     name: Optimization & Performance Tests
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: test
 
     steps:
@@ -109,7 +109,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
@@ -145,7 +145,7 @@ jobs:
 
   security:
     name: Security Audit
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
     - name: Checkout code
